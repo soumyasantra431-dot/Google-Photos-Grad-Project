@@ -1,0 +1,5 @@
+# Copy this file to .dev.vars when local API integration begins.
+# Never commit real secret values.
+GROQ_API_KEY=
+YOUTUBE_API_KEY=
+
