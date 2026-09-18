@@ -22,6 +22,15 @@ pnpm.cmd run check
 pnpm.cmd run build
 ```
 
+## Deployment
+
+```powershell
+pnpm.cmd run deploy
+```
+
+The deployment script builds the React and Worker environments, then deploys the generated
+Wrangler configuration so both the API and static interface are published together.
+
 ## Secrets
 
 When integrations begin, copy `.dev.vars.example` to `.dev.vars` and add values locally. Never
@@ -30,4 +39,3 @@ commit `.dev.vars`, `.env`, API keys, or tokens.
 ## Architecture
 
 See [docs/architecture.md](docs/architecture.md) for the staged system design.
-

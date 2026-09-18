@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "check": "tsc --noEmit",
-    "deploy": "pnpm run build && wrangler deploy",
+    "deploy": "pnpm run build && wrangler deploy --config dist/google_photos_grad_project/wrangler.json",
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
