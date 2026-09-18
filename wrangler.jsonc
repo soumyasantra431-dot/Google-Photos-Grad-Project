@@ -8,9 +8,16 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*"]
   },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "photo-recall-evidence",
+      "database_id": "db9068e5-4ca3-41ae-a7f3-ae3eaebdd20a",
+      "migrations_dir": "migrations"
+    }
+  ],
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
   }
 }
-

@@ -1,8 +1,15 @@
 import { useEffect, useState } from "react";
 
-type HealthState =
+type CorpusStats = {
+  source_count: number;
+  document_count: number;
+  evidence_count: number;
+  verified_count: number;
+};
+
+type SystemState =
   | { kind: "loading" }
-  | { kind: "online"; checkedAt: string }
+  | { kind: "online"; checkedAt: string; corpus: CorpusStats; simulatedExcluded: number }
   | { kind: "offline" };
 
 const stages = [
@@ -28,27 +35,51 @@ const stages = [
   },
 ];
 
+const emptyStats: CorpusStats = {
+  source_count: 0,
+  document_count: 0,
+  evidence_count: 0,
+  verified_count: 0,
+};
+
 function App() {
-  const [health, setHealth] = useState<HealthState>({ kind: "loading" });
+  const [system, setSystem] = useState<SystemState>({ kind: "loading" });
 
   useEffect(() => {
     const controller = new AbortController();
 
-    async function checkHealth() {
+    async function loadSystem() {
       try {
-        const response = await fetch("/api/health", { signal: controller.signal });
-        if (!response.ok) throw new Error("Health check failed");
-        const body = (await response.json()) as { checkedAt: string };
-        setHealth({ kind: "online", checkedAt: body.checkedAt });
+        const [healthResponse, statsResponse] = await Promise.all([
+          fetch("/api/health", { signal: controller.signal }),
+          fetch("/api/stats", { signal: controller.signal }),
+        ]);
+        if (!healthResponse.ok || !statsResponse.ok) throw new Error("System check failed");
+
+        const health = (await healthResponse.json()) as { checkedAt: string; database: string };
+        const stats = (await statsResponse.json()) as {
+          corpus?: CorpusStats;
+          simulatedEvidenceExcluded?: number;
+        };
+        if (health.database !== "connected") throw new Error("Database unavailable");
+
+        setSystem({
+          kind: "online",
+          checkedAt: health.checkedAt,
+          corpus: stats.corpus ?? emptyStats,
+          simulatedExcluded: stats.simulatedEvidenceExcluded ?? 0,
+        });
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return;
-        setHealth({ kind: "offline" });
+        setSystem({ kind: "offline" });
       }
     }
 
-    void checkHealth();
+    void loadSystem();
     return () => controller.abort();
   }, []);
+
+  const corpus = system.kind === "online" ? system.corpus : emptyStats;
 
   return (
     <div className="app-shell">
@@ -62,11 +93,11 @@ function App() {
           </span>
           <span>Photo Recall Lab</span>
         </a>
-        <div className={`status status-${health.kind}`} aria-live="polite">
+        <div className={`status status-${system.kind}`} aria-live="polite">
           <span className="status-dot" />
-          {health.kind === "loading" && "Checking foundation"}
-          {health.kind === "online" && "Foundation online"}
-          {health.kind === "offline" && "Foundation unavailable"}
+          {system.kind === "loading" && "Checking evidence system"}
+          {system.kind === "online" && "Evidence database connected"}
+          {system.kind === "offline" && "Evidence system unavailable"}
         </div>
       </header>
 
@@ -80,16 +111,16 @@ function App() {
               vague-memory photo retrieval—not another generic sentiment dashboard.
             </p>
             <div className="hero-actions">
-              <a className="button button-primary" href="#architecture">
-                Explore the foundation
+              <a className="button button-primary" href="#evidence">
+                Inspect the evidence layer
               </a>
-              <span className="build-label">Stage 1 · Architecture foundation</span>
+              <span className="build-label">Stage 2 · Traceable evidence foundation</span>
             </div>
           </div>
 
           <div className="memory-card" aria-label="Example memory clues">
             <div className="memory-card-header">
-              <span className="memory-icon" aria-hidden="true">✦</span>
+              <span className="memory-icon" aria-hidden="true">?</span>
               <span>A half-remembered moment</span>
             </div>
             <blockquote>“That tiny café from our Goa trip—the one with blue chairs.”</blockquote>
@@ -117,13 +148,58 @@ function App() {
           </div>
         </section>
 
+        <section className="evidence-foundation" id="evidence">
+          <div className="section-heading">
+            <p className="eyebrow">Live research corpus</p>
+            <h2>The evidence layer is connected and ready for real public conversations.</h2>
+            <p>
+              These counts include only admissible research evidence. Simulated records used to
+              test the system are stored separately and automatically excluded from findings.
+            </p>
+          </div>
+
+          <div className="metric-grid" aria-live="polite">
+            <article className="metric-card">
+              <span>Public sources</span>
+              <strong>{corpus.source_count}</strong>
+              <small>Traceable URLs admitted</small>
+            </article>
+            <article className="metric-card">
+              <span>Raw conversations</span>
+              <strong>{corpus.document_count}</strong>
+              <small>Original text preserved</small>
+            </article>
+            <article className="metric-card">
+              <span>Evidence units</span>
+              <strong>{corpus.evidence_count}</strong>
+              <small>Structured retrieval episodes</small>
+            </article>
+            <article className="metric-card">
+              <span>Human verified</span>
+              <strong>{corpus.verified_count}</strong>
+              <small>Extraction quality audited</small>
+            </article>
+          </div>
+
+          <div className="integrity-note">
+            <span className="integrity-icon" aria-hidden="true">✓</span>
+            <div>
+              <strong>Research-integrity guardrail active</strong>
+              <p>
+                {system.kind === "online" ? system.simulatedExcluded : 0} illustrative evidence
+                records are available for testing and excluded from all reported findings.
+              </p>
+            </div>
+          </div>
+        </section>
+
         <section className="architecture" id="architecture">
           <div className="section-heading">
-            <p className="eyebrow">How the foundation will grow</p>
+            <p className="eyebrow">How the system will grow</p>
             <h2>One evidence chain from conversation to product opportunity</h2>
             <p>
-              The current build proves the interface and Worker API operate as one deployable
-              Cloudflare application. Data and AI are added only after this foundation is stable.
+              Raw material and provenance now have a stable home. Collection and Groq-based
+              classification can be added without mixing generated interpretation with user voice.
             </p>
           </div>
 
@@ -141,11 +217,11 @@ function App() {
         <section className="next-step">
           <div>
             <p className="eyebrow">Next implementation gate</p>
-            <h2>Make evidence traceable before making it intelligent.</h2>
+            <h2>Collect a small, defensible public evidence set.</h2>
           </div>
           <p>
-            Stage 2 will introduce the D1 evidence schema and a small, auditable import path. Groq
-            classification comes only after raw evidence and provenance are stored correctly.
+            Stage 3 will add the first compliant source collector, deduplication, and an auditable
+            import run. Groq will then structure retrieval episodes while preserving every source.
           </p>
         </section>
       </main>
@@ -153,9 +229,9 @@ function App() {
       <footer>
         <span>Photo Recall Discovery Engine</span>
         <span>
-          {health.kind === "online"
-            ? `API checked ${new Date(health.checkedAt).toLocaleTimeString()}`
-            : "Foundation build"}
+          {system.kind === "online"
+            ? `Database checked ${new Date(system.checkedAt).toLocaleTimeString()}`
+            : "Evidence foundation build"}
         </span>
       </footer>
     </div>

@@ -290,6 +290,80 @@ blockquote {
   padding: 128px 0;
 }
 
+.evidence-foundation {
+  padding: 128px 0 0;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.metric-card {
+  display: grid;
+  min-height: 184px;
+  padding: 24px;
+  border: 1px solid #e2e7ef;
+  border-radius: 20px;
+  background: #fff;
+}
+
+.metric-card span {
+  color: #5f6368;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.metric-card strong {
+  align-self: center;
+  font-size: 48px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.metric-card small {
+  align-self: end;
+  color: #80868b;
+  font-size: 13px;
+}
+
+.integrity-note {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin-top: 18px;
+  padding: 22px 24px;
+  border: 1px solid #cce8d5;
+  border-radius: 18px;
+  background: #f1f8f4;
+}
+
+.integrity-icon {
+  display: grid;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 50%;
+  background: #34a853;
+  color: #fff;
+  font-weight: 800;
+}
+
+.integrity-note strong {
+  display: block;
+  margin: 1px 0 5px;
+  font-size: 14px;
+}
+
+.integrity-note p {
+  margin: 0;
+  color: #486151;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 .section-heading {
   max-width: 740px;
   margin-bottom: 48px;
@@ -396,6 +470,10 @@ footer {
     grid-template-columns: repeat(2, 1fr);
   }
 
+  .metric-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
   .next-step {
     grid-template-columns: 1fr;
   }
@@ -439,7 +517,8 @@ footer {
   }
 
   .principle-strip,
-  .stage-grid {
+  .stage-grid,
+  .metric-grid {
     grid-template-columns: 1fr;
   }
 
@@ -448,8 +527,13 @@ footer {
     border-left: 0;
   }
 
-  .architecture {
+  .architecture,
+  .evidence-foundation {
     padding: 92px 0;
+  }
+
+  .evidence-foundation {
+    padding-bottom: 0;
   }
 
   .stage-card {
@@ -476,4 +560,3 @@ footer {
     scroll-behavior: auto;
   }
 }
-

@@ -8,6 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "check": "tsc --noEmit",
     "deploy": "pnpm run build && wrangler deploy --config dist/google_photos_grad_project/wrangler.json",
+    "db:migrate:local": "wrangler d1 migrations apply photo-recall-evidence --local",
+    "db:migrate:remote": "wrangler d1 migrations apply photo-recall-evidence --remote",
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
@@ -16,7 +18,7 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.54.11",
-    "@cloudflare/workers-types": "5.20260917.1",
+    "@types/node": "^26.6.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.1",
