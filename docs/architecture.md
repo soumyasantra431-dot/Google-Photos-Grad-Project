@@ -17,9 +17,10 @@ The first deployable unit contains:
 3. A D1 database in the APAC region with versioned migrations.
 4. Separate tables for raw documents, extracted evidence, tags, and human audits.
 5. Read-only, validated APIs for corpus health, statistics, and evidence inspection.
-6. No external API key or AI dependency yet.
+6. Required encrypted secrets for YouTube, Groq, and authenticated ingestion.
 
-This creates a reversible, testable evidence layer before source collection and AI extraction.
+This creates a reversible, testable evidence chain from collection through AI extraction and
+deterministic reporting.
 
 ## Planned evidence flow
 
@@ -45,6 +46,8 @@ Public APIs and auditable imports
 ## Responsibility boundaries
 
 - **Source connectors** collect only public, permitted material and preserve canonical URLs.
+- **Local Apple collector** reads public review feeds, removes reviewer identities, and submits a
+  bounded batch because Apple blocks the feed from Cloudflare edge addresses.
 - **D1** is the system of record for documents, evidence units, classifications, and audits.
 - **Groq** classifies and synthesizes; it does not invent or calculate dashboard totals.
 - **Worker API** validates requests and queries bound Cloudflare services.
@@ -71,9 +74,17 @@ Public APIs and auditable imports
 - `.dev.vars` and environment files are excluded from Git.
 - No secret or synthetic research claim is presented as real evidence.
 
+## Current collection quality
+
+- YouTube is operational but low-yield for vague-memory retrieval.
+- The first broad YouTube run produced eight deletion/recovery records; all were audited and
+  excluded without deleting their provenance.
+- A stricter YouTube run retained zero records rather than manufacturing relevance.
+- The first Apple review run scanned 112 reviews and retained one traceable retrieval episode.
+
 ## Deferred
 
-- Public-source collectors and scheduled collection.
-- Groq secret and structured extraction.
+- Google Play, Reddit, and Google support-community connectors.
+- Scheduled execution through a remote-compatible source or approved workflow runner.
 - R2 raw-payload archive if source payload volume requires it.
 - Vectorize semantic retrieval after the evidence corpus is large enough to justify it.

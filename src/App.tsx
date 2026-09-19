@@ -7,40 +7,70 @@ type CorpusStats = {
   verified_count: number;
 };
 
+type Evidence = {
+  id: string;
+  retrieval_target: string;
+  evidence_excerpt: string;
+  remembered_clues_json: string;
+  forgotten_context_json: string;
+  search_attempt: string | null;
+  failure_stage: string;
+  retrieval_outcome: string;
+  extraction_confidence: number;
+  is_human_verified: number;
+  source_kind: string;
+  platform: string;
+  canonical_url: string;
+  published_at: string | null;
+};
+
+type CollectionRun = {
+  id: string;
+  source_kind: string;
+  status: string;
+  records_seen: number;
+  records_stored: number;
+  completed_at: string | null;
+};
+
+type Breakdown = { source_kind?: string; failure_stage?: string; evidence_count: number };
+
 type SystemState =
   | { kind: "loading" }
-  | { kind: "online"; checkedAt: string; corpus: CorpusStats; simulatedExcluded: number }
+  | {
+      kind: "online";
+      checkedAt: string;
+      corpus: CorpusStats;
+      simulatedExcluded: number;
+      publicExcluded: number;
+      evidence: Evidence[];
+      runs: CollectionRun[];
+      bySource: Breakdown[];
+      byFailureStage: Breakdown[];
+    }
   | { kind: "offline" };
 
 const stages = [
-  {
-    number: "01",
-    title: "Collect evidence",
-    description: "Bring public conversations into one traceable research corpus.",
-  },
-  {
-    number: "02",
-    title: "Structure memory clues",
-    description: "Separate what people remember, forget, try, and experience.",
-  },
-  {
-    number: "03",
-    title: "Compare breakdowns",
-    description: "Find where expression, interpretation, evaluation, or recovery fails.",
-  },
-  {
-    number: "04",
-    title: "Prioritise an opportunity",
-    description: "Connect evidence to a focused product outcome and validation plan.",
-  },
+  { number: "01", title: "Collect evidence", description: "Bring public conversations into one traceable research corpus." },
+  { number: "02", title: "Structure memory clues", description: "Separate what people remember, forget, try, and experience." },
+  { number: "03", title: "Compare breakdowns", description: "Find where expression, interpretation, evaluation, or recovery fails." },
+  { number: "04", title: "Prioritise an opportunity", description: "Connect evidence to a focused product outcome and validation plan." },
 ];
 
-const emptyStats: CorpusStats = {
-  source_count: 0,
-  document_count: 0,
-  evidence_count: 0,
-  verified_count: 0,
-};
+const emptyStats: CorpusStats = { source_count: 0, document_count: 0, evidence_count: 0, verified_count: 0 };
+
+function parseStringArray(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function friendlyLabel(value: string): string {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
 
 function App() {
   const [system, setSystem] = useState<SystemState>({ kind: "loading" });
@@ -50,17 +80,26 @@ function App() {
 
     async function loadSystem() {
       try {
-        const [healthResponse, statsResponse] = await Promise.all([
+        const [healthResponse, statsResponse, evidenceResponse, runsResponse] = await Promise.all([
           fetch("/api/health", { signal: controller.signal }),
           fetch("/api/stats", { signal: controller.signal }),
+          fetch("/api/evidence?limit=12", { signal: controller.signal }),
+          fetch("/api/collection-runs", { signal: controller.signal }),
         ]);
-        if (!healthResponse.ok || !statsResponse.ok) throw new Error("System check failed");
+        if (![healthResponse, statsResponse, evidenceResponse, runsResponse].every((response) => response.ok)) {
+          throw new Error("System check failed");
+        }
 
         const health = (await healthResponse.json()) as { checkedAt: string; database: string };
         const stats = (await statsResponse.json()) as {
           corpus?: CorpusStats;
           simulatedEvidenceExcluded?: number;
+          publicEvidenceExcluded?: number;
+          bySource?: Breakdown[];
+          byFailureStage?: Breakdown[];
         };
+        const evidence = (await evidenceResponse.json()) as { data?: Evidence[] };
+        const runs = (await runsResponse.json()) as { data?: CollectionRun[] };
         if (health.database !== "connected") throw new Error("Database unavailable");
 
         setSystem({
@@ -68,6 +107,11 @@ function App() {
           checkedAt: health.checkedAt,
           corpus: stats.corpus ?? emptyStats,
           simulatedExcluded: stats.simulatedEvidenceExcluded ?? 0,
+          publicExcluded: stats.publicEvidenceExcluded ?? 0,
+          evidence: evidence.data ?? [],
+          runs: (runs.data ?? []).filter((run) => run.status === "completed").slice(0, 4),
+          bySource: stats.bySource ?? [],
+          byFailureStage: stats.byFailureStage ?? [],
         });
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -80,6 +124,8 @@ function App() {
   }, []);
 
   const corpus = system.kind === "online" ? system.corpus : emptyStats;
+  const evidence = system.kind === "online" ? system.evidence : [];
+  const runs = system.kind === "online" ? system.runs : [];
 
   return (
     <div className="app-shell">
@@ -95,9 +141,9 @@ function App() {
         </a>
         <div className={`status status-${system.kind}`} aria-live="polite">
           <span className="status-dot" />
-          {system.kind === "loading" && "Checking evidence system"}
-          {system.kind === "online" && "Evidence database connected"}
-          {system.kind === "offline" && "Evidence system unavailable"}
+          {system.kind === "loading" && "Checking discovery engine"}
+          {system.kind === "online" && "Discovery engine online"}
+          {system.kind === "offline" && "Discovery engine unavailable"}
         </div>
       </header>
 
@@ -111,10 +157,8 @@ function App() {
               vague-memory photo retrieval—not another generic sentiment dashboard.
             </p>
             <div className="hero-actions">
-              <a className="button button-primary" href="#evidence">
-                Inspect the evidence layer
-              </a>
-              <span className="build-label">Stage 2 · Traceable evidence foundation</span>
+              <a className="button button-primary" href="#explorer">Explore real evidence</a>
+              <span className="build-label">Stage 3 · Live source collection and AI coding</span>
             </div>
           </div>
 
@@ -125,60 +169,30 @@ function App() {
             </div>
             <blockquote>“That tiny café from our Goa trip—the one with blue chairs.”</blockquote>
             <div className="clue-list">
-              <span>Place · Goa</span>
-              <span>Object · blue chairs</span>
-              <span>Context · trip</span>
+              <span>Place · Goa</span><span>Object · blue chairs</span><span>Context · trip</span>
               <span className="clue-missing">Forgotten · exact date</span>
             </div>
           </div>
         </section>
 
         <section className="principle-strip" aria-label="Research principles">
-          <div>
-            <strong>Evidence first</strong>
-            <span>Every finding traces back to a source.</span>
-          </div>
-          <div>
-            <strong>Beyond sentiment</strong>
-            <span>We code memory, behavior, failure, and workaround.</span>
-          </div>
-          <div>
-            <strong>Honest confidence</strong>
-            <span>Corpus patterns are not population prevalence.</span>
-          </div>
+          <div><strong>Evidence first</strong><span>Every finding traces back to a public source.</span></div>
+          <div><strong>Beyond sentiment</strong><span>We code memory, behavior, failure, and workaround.</span></div>
+          <div><strong>Honest confidence</strong><span>Corpus patterns are not population prevalence.</span></div>
         </section>
 
         <section className="evidence-foundation" id="evidence">
           <div className="section-heading">
             <p className="eyebrow">Live research corpus</p>
-            <h2>The evidence layer is connected and ready for real public conversations.</h2>
-            <p>
-              These counts include only admissible research evidence. Simulated records used to
-              test the system are stored separately and automatically excluded from findings.
-            </p>
+            <h2>Only evidence that survives relevance and provenance checks reaches the corpus.</h2>
+            <p>Counts update from D1 and exclude simulations and public records rejected during scope review.</p>
           </div>
 
           <div className="metric-grid" aria-live="polite">
-            <article className="metric-card">
-              <span>Public sources</span>
-              <strong>{corpus.source_count}</strong>
-              <small>Traceable URLs admitted</small>
-            </article>
-            <article className="metric-card">
-              <span>Raw conversations</span>
-              <strong>{corpus.document_count}</strong>
-              <small>Original text preserved</small>
-            </article>
-            <article className="metric-card">
-              <span>Evidence units</span>
-              <strong>{corpus.evidence_count}</strong>
-              <small>Structured retrieval episodes</small>
-            </article>
-            <article className="metric-card">
-              <span>Human verified</span>
-              <strong>{corpus.verified_count}</strong>
-              <small>Extraction quality audited</small>
-            </article>
+            <article className="metric-card"><span>Public sources</span><strong>{corpus.source_count}</strong><small>Traceable URLs admitted</small></article>
+            <article className="metric-card"><span>Raw conversations</span><strong>{corpus.document_count}</strong><small>Original language preserved</small></article>
+            <article className="metric-card"><span>Evidence units</span><strong>{corpus.evidence_count}</strong><small>Structured retrieval episodes</small></article>
+            <article className="metric-card"><span>Human verified</span><strong>{corpus.verified_count}</strong><small>Extraction quality audited</small></article>
           </div>
 
           <div className="integrity-note">
@@ -186,57 +200,87 @@ function App() {
             <div>
               <strong>Research-integrity guardrail active</strong>
               <p>
-                {system.kind === "online" ? system.simulatedExcluded : 0} illustrative evidence
-                records are available for testing and excluded from all reported findings.
+                {system.kind === "online" ? system.publicExcluded : 0} out-of-scope public records and {system.kind === "online" ? system.simulatedExcluded : 0} illustrative records are excluded from findings.
               </p>
             </div>
           </div>
         </section>
 
-        <section className="architecture" id="architecture">
+        <section className="explorer" id="explorer">
           <div className="section-heading">
-            <p className="eyebrow">How the system will grow</p>
-            <h2>One evidence chain from conversation to product opportunity</h2>
-            <p>
-              Raw material and provenance now have a stable home. Collection and Groq-based
-              classification can be added without mixing generated interpretation with user voice.
-            </p>
+            <p className="eyebrow">Evidence explorer</p>
+            <h2>See the user’s words before accepting the AI’s interpretation.</h2>
+            <p>Every card pairs an exact source excerpt with structured memory clues and a direct source link.</p>
           </div>
 
-          <div className="stage-grid">
-            {stages.map((stage) => (
-              <article className="stage-card" key={stage.number}>
-                <span className="stage-number">{stage.number}</span>
-                <h3>{stage.title}</h3>
-                <p>{stage.description}</p>
-              </article>
+          {evidence.length > 0 ? (
+            <div className="evidence-grid">
+              {evidence.map((item) => {
+                const clues = parseStringArray(item.remembered_clues_json);
+                const forgotten = parseStringArray(item.forgotten_context_json);
+                return (
+                  <article className="evidence-card" key={item.id}>
+                    <div className="evidence-meta">
+                      <span>{item.platform}</span>
+                      <span>{Math.round(item.extraction_confidence * 100)}% AI confidence</span>
+                    </div>
+                    <blockquote>“{item.evidence_excerpt}”</blockquote>
+                    <h3>{item.retrieval_target}</h3>
+                    <div className="evidence-tags">
+                      {clues.map((clue) => <span key={`clue-${clue}`}>Remembered · {clue}</span>)}
+                      {forgotten.map((detail) => <span className="tag-forgotten" key={`forgotten-${detail}`}>Forgotten · {detail}</span>)}
+                    </div>
+                    <div className="evidence-footer">
+                      <span>{friendlyLabel(item.failure_stage)} · {friendlyLabel(item.retrieval_outcome)}</span>
+                      <a href={item.canonical_url} target="_blank" rel="noreferrer">Open source ↗</a>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : <p className="empty-state">No admissible evidence has been retained yet.</p>}
+        </section>
+
+        <section className="runs-section">
+          <div className="section-heading">
+            <p className="eyebrow">Collection diagnostics</p>
+            <h2>Low yield is visible instead of being disguised as insight.</h2>
+            <p>Completed runs show how much material was scanned and how little met the research definition.</p>
+          </div>
+          <div className="run-list">
+            {runs.map((run) => (
+              <div className="run-row" key={run.id}>
+                <div><strong>{friendlyLabel(run.source_kind)}</strong><span>{run.completed_at ? new Date(run.completed_at).toLocaleString() : "In progress"}</span></div>
+                <div><strong>{run.records_seen}</strong><span>scanned</span></div>
+                <div><strong>{run.records_stored}</strong><span>initially retained</span></div>
+              </div>
             ))}
           </div>
         </section>
 
-        <section className="next-step">
-          <div>
-            <p className="eyebrow">Next implementation gate</p>
-            <h2>Collect a small, defensible public evidence set.</h2>
+        <section className="architecture" id="architecture">
+          <div className="section-heading">
+            <p className="eyebrow">Evidence chain</p>
+            <h2>One auditable path from public conversation to product opportunity</h2>
+            <p>Raw source text stays separate from Groq interpretation; deterministic APIs calculate coverage and breakdowns.</p>
           </div>
-          <p>
-            Stage 3 will add the first compliant source collector, deduplication, and an auditable
-            import run. Groq will then structure retrieval episodes while preserving every source.
-          </p>
+          <div className="stage-grid">
+            {stages.map((stage) => <article className="stage-card" key={stage.number}><span className="stage-number">{stage.number}</span><h3>{stage.title}</h3><p>{stage.description}</p></article>)}
+          </div>
+        </section>
+
+        <section className="next-step">
+          <div><p className="eyebrow">Next implementation gate</p><h2>Broaden evidence before defining the opportunity.</h2></div>
+          <p>Add Google Play, Reddit, and support-community evidence, then human-audit a stratified sample before comparing failure stages.</p>
         </section>
       </main>
 
       <footer>
         <span>Photo Recall Discovery Engine</span>
-        <span>
-          {system.kind === "online"
-            ? `Database checked ${new Date(system.checkedAt).toLocaleTimeString()}`
-            : "Evidence foundation build"}
-        </span>
+        <span>{system.kind === "online" ? `Database checked ${new Date(system.checkedAt).toLocaleTimeString()}` : "Evidence system"}</span>
       </footer>
     </div>
   );
 }
 
 export default App;
-

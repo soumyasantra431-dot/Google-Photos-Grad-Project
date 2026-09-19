@@ -1,3 +1,5 @@
+import { collectYouTubeEvidence, ingestAppStoreEvidence, timingSafeSecretMatch } from "./collection";
+
 type EvidenceFilters = {
   limit: number;
   failureStage?: string;
@@ -48,7 +50,7 @@ function parseEvidenceFilters(url: URL): EvidenceFilters | Response {
 }
 
 async function getStats(db: D1Database): Promise<Response> {
-  const [included, simulated, sourceBreakdown, failureBreakdown] = await db.batch([
+  const [included, simulated, excluded, sourceBreakdown, failureBreakdown] = await db.batch([
     db.prepare(`
       SELECT
         COUNT(DISTINCT s.id) AS source_count,
@@ -66,6 +68,13 @@ async function getStats(db: D1Database): Promise<Response> {
       JOIN raw_documents d ON d.id = e.document_id
       JOIN sources s ON s.id = d.source_id
       WHERE s.is_simulated = 1
+    `),
+    db.prepare(`
+      SELECT COUNT(DISTINCT e.id) AS evidence_count
+      FROM evidence_units e
+      JOIN raw_documents d ON d.id = e.document_id
+      JOIN sources s ON s.id = d.source_id
+      WHERE s.include_in_findings = 0 AND s.is_simulated = 0
     `),
     db.prepare(`
       SELECT s.source_kind, COUNT(DISTINCT e.id) AS evidence_count
@@ -91,10 +100,12 @@ async function getStats(db: D1Database): Promise<Response> {
     | { source_count: number; document_count: number; evidence_count: number; verified_count: number }
     | undefined;
   const simulatedRow = simulated.results[0] as { evidence_count: number } | undefined;
+  const excludedRow = excluded.results[0] as { evidence_count: number } | undefined;
 
   return jsonResponse({
     corpus: corpus ?? { source_count: 0, document_count: 0, evidence_count: 0, verified_count: 0 },
     simulatedEvidenceExcluded: simulatedRow?.evidence_count ?? 0,
+    publicEvidenceExcluded: excludedRow?.evidence_count ?? 0,
     bySource: sourceBreakdown.results,
     byFailureStage: failureBreakdown.results,
     generatedAt: new Date().toISOString(),
@@ -151,6 +162,17 @@ async function getEvidence(db: D1Database, id: string): Promise<Response> {
   return jsonResponse({ data: result });
 }
 
+async function listCollectionRuns(db: D1Database): Promise<Response> {
+  const result = await db.prepare(`
+    SELECT id, source_kind, collector_version, started_at, completed_at, status,
+      records_seen, records_stored, error_summary
+    FROM collection_runs
+    ORDER BY started_at DESC
+    LIMIT 10
+  `).all();
+  return jsonResponse({ data: result.results, count: result.results.length });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -161,7 +183,7 @@ export default {
         return jsonResponse({
           status: "ok",
           service: "photo-recall-discovery-engine",
-          stage: "evidence-foundation",
+          stage: "multi-source-ingestion",
           database: databaseCheck?.connected === 1 ? "connected" : "unavailable",
           checkedAt: new Date().toISOString(),
         });
@@ -169,6 +191,32 @@ export default {
 
       if (request.method === "GET" && url.pathname === "/api/stats") {
         return await getStats(env.DB);
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/collection-runs") {
+        return await listCollectionRuns(env.DB);
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/internal/collect/youtube") {
+        const authorization = request.headers.get("Authorization") ?? "";
+        const providedToken = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+        if (!providedToken || !await timingSafeSecretMatch(providedToken, env.COLLECTION_TRIGGER_TOKEN)) {
+          return jsonResponse({ error: "unauthorized", message: "A valid collection token is required." }, 401);
+        }
+        return jsonResponse({ data: await collectYouTubeEvidence(env) }, 201);
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/internal/ingest/app-store") {
+        const authorization = request.headers.get("Authorization") ?? "";
+        const providedToken = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+        if (!providedToken || !await timingSafeSecretMatch(providedToken, env.COLLECTION_TRIGGER_TOKEN)) {
+          return jsonResponse({ error: "unauthorized", message: "A valid collection token is required." }, 401);
+        }
+        const contentLength = Number(request.headers.get("Content-Length") ?? "0");
+        if (!Number.isFinite(contentLength) || contentLength < 2 || contentLength > 750_000) {
+          return jsonResponse({ error: "payload_too_large", message: "A bounded JSON payload is required." }, 413);
+        }
+        return jsonResponse({ data: await ingestAppStoreEvidence(env, await request.json()) }, 201);
       }
 
       if (request.method === "GET" && url.pathname === "/api/evidence") {
