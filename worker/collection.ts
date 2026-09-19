@@ -62,6 +62,14 @@ type AppStoreCandidate = {
   appVersion: string | null;
 };
 
+type GoogleSupportCandidate = {
+  threadId: string;
+  postId: string;
+  title: string;
+  body: string;
+  publishedAt: string | null;
+};
+
 type Extraction = {
   index: number;
   relevant: boolean;
@@ -99,6 +107,14 @@ export type AppStoreCollectionSummary = {
   model: string;
 };
 
+export type GoogleSupportCollectionSummary = {
+  runId: string;
+  postsScanned: number;
+  postsAnalyzed: number;
+  evidenceStored: number;
+  model: string;
+};
+
 async function fetchJson<T>(url: URL | string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   if (!response.ok) {
@@ -108,12 +124,13 @@ async function fetchJson<T>(url: URL | string, init?: RequestInit): Promise<T> {
   return response.json<T>();
 }
 
-function isClearlyOutOfScope(candidate: { body: string }): boolean {
+export function isClearlyOutOfScope(candidate: { body: string }): boolean {
   const text = candidate.body.toLocaleLowerCase();
   const recoveryProblem = /\b(delet(?:e|ed|ing)|trash|recycle|restore|recover|backup|back up|disappeared|storage|sync)\b/.test(text);
+  const negatedRecovery = /\b(not|never|don't|do not|isn't|wasn't|no)\s+(?:to\s+)?(?:delete|deleted|deleting|recover|restore)\b/.test(text);
   const memorySignal = /\b(remember|recall|description|clue|trip|place|person|people|wearing|background|sometime|roughly)\b/.test(text);
   const genericTutorialReaction = /\b(thank you|thanks|this worked|saved my life|helped me)\b/.test(text);
-  return (recoveryProblem && !memorySignal) || (genericTutorialReaction && !memorySignal);
+  return (recoveryProblem && !memorySignal && !negatedRecovery) || (genericTutorialReaction && !memorySignal);
 }
 
 function hasRetrievalSignal(candidate: { body: string }): boolean {
@@ -143,6 +160,29 @@ function normalizeAppStoreReviews(value: unknown): AppStoreCandidate[] {
   }
 
   return [...new Map(reviews.map((review) => [`${review.storefront}:${review.reviewId}`, review])).values()];
+}
+
+function normalizeGoogleSupportPosts(value: unknown): GoogleSupportCandidate[] {
+  if (!Array.isArray(value)) throw new Error("Google Support payload must be an array");
+  const posts: GoogleSupportCandidate[] = [];
+
+  for (const item of value.slice(0, 50)) {
+    if (!item || typeof item !== "object") continue;
+    const post = item as Record<string, unknown>;
+    if (typeof post.threadId !== "string" || !/^\d{1,12}$/.test(post.threadId)) continue;
+    if (typeof post.postId !== "string" || !/^\d{1,12}$/.test(post.postId)) continue;
+    if (typeof post.title !== "string" || !post.title.trim()) continue;
+    if (typeof post.body !== "string" || post.body.trim().length < 12) continue;
+    posts.push({
+      threadId: post.threadId,
+      postId: post.postId,
+      title: post.title.trim().slice(0, 300),
+      body: post.body.trim().slice(0, 4000),
+      publishedAt: typeof post.publishedAt === "string" ? post.publishedAt.slice(0, 40) : null,
+    });
+  }
+
+  return [...new Map(posts.map((post) => [`${post.threadId}:${post.postId}`, post])).values()];
 }
 
 async function sha256Hex(value: string): Promise<string> {
@@ -337,6 +377,9 @@ async function storeExtraction(
   const sourceId = `src_${identityHash.slice(0, 24)}`;
   const documentId = `doc_${identityHash.slice(0, 24)}`;
   const evidenceId = `ev_${identityHash.slice(0, 24)}`;
+  const reviewed = await db.prepare("SELECT is_human_verified FROM evidence_units WHERE id = ?")
+    .bind(evidenceId).first<{ is_human_verified: number }>();
+  if (reviewed?.is_human_verified === 1) return false;
   const contentHash = await sha256Hex(comment.body);
   const canonicalUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(comment.videoId)}&lc=${encodeURIComponent(comment.commentId)}`;
   const now = new Date().toISOString();
@@ -420,6 +463,9 @@ async function storeAppStoreExtraction(
   const sourceId = `src_${identityHash.slice(0, 24)}`;
   const documentId = `doc_${identityHash.slice(0, 24)}`;
   const evidenceId = `ev_${identityHash.slice(0, 24)}`;
+  const reviewed = await db.prepare("SELECT is_human_verified FROM evidence_units WHERE id = ?")
+    .bind(evidenceId).first<{ is_human_verified: number }>();
+  if (reviewed?.is_human_verified === 1) return false;
   const contentHash = await sha256Hex(review.body);
   const canonicalUrl = `https://itunes.apple.com/${review.storefront}/rss/customerreviews/id=${APP_STORE_APP_ID}/json#review-${encodeURIComponent(review.reviewId)}`;
   const now = new Date().toISOString();
@@ -483,6 +529,129 @@ async function storeAppStoreExtraction(
   ]);
 
   return true;
+}
+
+async function storeGoogleSupportExtraction(
+  db: D1Database,
+  runId: string,
+  post: GoogleSupportCandidate,
+  extraction: Extraction,
+): Promise<boolean> {
+  if (!extraction.relevant || extraction.confidence < 0.8) return false;
+  if (!extraction.retrieval_target || !extraction.evidence_excerpt) return false;
+  if (!post.body.toLocaleLowerCase().includes(extraction.evidence_excerpt.toLocaleLowerCase())) return false;
+
+  const identityHash = await sha256Hex(post.postId === post.threadId
+    ? `google-support:${post.threadId}`
+    : `google-support:${post.threadId}:reply:${post.postId}`);
+  const sourceId = `src_${identityHash.slice(0, 24)}`;
+  const documentId = `doc_${identityHash.slice(0, 24)}`;
+  const evidenceId = `ev_${identityHash.slice(0, 24)}`;
+  const reviewed = await db.prepare("SELECT is_human_verified FROM evidence_units WHERE id = ?")
+    .bind(evidenceId).first<{ is_human_verified: number }>();
+  if (reviewed?.is_human_verified === 1) return false;
+  const contentHash = await sha256Hex(post.body);
+  const now = new Date().toISOString();
+  const canonicalUrl = `https://support.google.com/photos/thread/${post.threadId}?hl=en${post.postId === post.threadId ? "" : `&msgid=${post.postId}`}`;
+
+  await executeInChunks(db, [
+    db.prepare(`
+      INSERT INTO sources (
+        id, source_kind, platform, canonical_url, author_handle, published_at,
+        collected_at, language, is_simulated, include_in_findings, metadata_json
+      ) VALUES (?, 'google_support', 'Google Photos Community', ?, NULL, ?, ?, 'en', 0, 1, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        published_at = excluded.published_at,
+        collected_at = excluded.collected_at,
+        metadata_json = excluded.metadata_json
+    `).bind(sourceId, canonicalUrl, post.publishedAt, now, JSON.stringify({ threadId: post.threadId, postId: post.postId, extractionMethod: post.postId === post.threadId ? "public_original_post" : "public_reply" })),
+    db.prepare(`
+      INSERT INTO raw_documents (
+        id, source_id, collection_run_id, external_id, title, body, content_hash,
+        reply_to_external_id, engagement_count, collected_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        collection_run_id = excluded.collection_run_id,
+        title = excluded.title,
+        body = excluded.body,
+        content_hash = excluded.content_hash,
+        collected_at = excluded.collected_at
+    `).bind(documentId, sourceId, runId, post.postId, post.title, post.body, contentHash, now),
+    db.prepare(`
+      INSERT INTO evidence_units (
+        id, document_id, retrieval_target, evidence_excerpt, remembered_clues_json,
+        forgotten_context_json, search_attempt, failure_stage, workaround,
+        retrieval_outcome, model_name, schema_version, extraction_confidence,
+        extracted_at, is_human_verified
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '1.0', ?, ?, 0)
+      ON CONFLICT(id) DO UPDATE SET
+        retrieval_target = excluded.retrieval_target,
+        evidence_excerpt = excluded.evidence_excerpt,
+        remembered_clues_json = excluded.remembered_clues_json,
+        forgotten_context_json = excluded.forgotten_context_json,
+        search_attempt = excluded.search_attempt,
+        failure_stage = excluded.failure_stage,
+        workaround = excluded.workaround,
+        retrieval_outcome = excluded.retrieval_outcome,
+        model_name = excluded.model_name,
+        schema_version = excluded.schema_version,
+        extraction_confidence = excluded.extraction_confidence,
+        extracted_at = excluded.extracted_at
+    `).bind(
+      evidenceId, documentId, extraction.retrieval_target, extraction.evidence_excerpt,
+      JSON.stringify(extraction.remembered_clues), JSON.stringify(extraction.forgotten_context),
+      extraction.search_attempt, extraction.failure_stage, extraction.workaround,
+      extraction.retrieval_outcome, GROQ_MODEL, extraction.confidence, now,
+    ),
+  ]);
+
+  return true;
+}
+
+export async function ingestGoogleSupportEvidence(env: Env, payload: unknown): Promise<GoogleSupportCollectionSummary> {
+  const runId = `run_${crypto.randomUUID()}`;
+  await env.DB.prepare(`
+    INSERT INTO collection_runs (
+      id, source_kind, collector_version, started_at, status, records_seen, records_stored
+    ) VALUES (?, 'google_support', 'google-support-v1', ?, 'running', 0, 0)
+  `).bind(runId, new Date().toISOString()).run();
+
+  try {
+    const posts = normalizeGoogleSupportPosts(payload);
+    if (posts.length === 0) throw new Error("Google Support payload contained no valid posts");
+    const postsForAnalysis = posts.filter((post) => hasRetrievalSignal(post) && !isClearlyOutOfScope(post));
+    let evidenceStored = 0;
+
+    for (let offset = 0; offset < postsForAnalysis.length; offset += GROQ_BATCH_SIZE) {
+      const batch = postsForAnalysis.slice(offset, offset + GROQ_BATCH_SIZE);
+      const extractions = await extractBatch(env.GROQ_API_KEY, batch);
+      for (const extraction of extractions) {
+        const post = batch[extraction.index];
+        if (!post) continue;
+        if (await storeGoogleSupportExtraction(env.DB, runId, post, extraction)) evidenceStored += 1;
+      }
+    }
+
+    await env.DB.prepare(`
+      UPDATE collection_runs
+      SET completed_at = ?, status = 'completed', records_seen = ?, records_stored = ?
+      WHERE id = ?
+    `).bind(new Date().toISOString(), posts.length, evidenceStored, runId).run();
+
+    const summary: GoogleSupportCollectionSummary = {
+      runId, postsScanned: posts.length, postsAnalyzed: postsForAnalysis.length,
+      evidenceStored, model: GROQ_MODEL,
+    };
+    console.log(JSON.stringify({ event: "google_support_collection_completed", ...summary }));
+    return summary;
+  } catch (error) {
+    await env.DB.prepare(`
+      UPDATE collection_runs
+      SET completed_at = ?, status = 'failed', error_summary = ?
+      WHERE id = ?
+    `).bind(new Date().toISOString(), String(error).slice(0, 1000), runId).run();
+    throw error;
+  }
 }
 
 export async function ingestAppStoreEvidence(env: Env, payload: unknown): Promise<AppStoreCollectionSummary> {

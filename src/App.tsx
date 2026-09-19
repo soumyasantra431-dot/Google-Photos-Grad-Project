@@ -18,6 +18,8 @@ type Evidence = {
   retrieval_outcome: string;
   extraction_confidence: number;
   is_human_verified: number;
+  audit_verdict: string | null;
+  audit_notes: string | null;
   source_kind: string;
   platform: string;
   canonical_url: string;
@@ -222,7 +224,7 @@ function App() {
                   <article className="evidence-card" key={item.id}>
                     <div className="evidence-meta">
                       <span>{item.platform}</span>
-                      <span>{Math.round(item.extraction_confidence * 100)}% AI confidence</span>
+                      <span>{item.is_human_verified ? "Human reviewed" : "Awaiting human review"}</span>
                     </div>
                     <blockquote>“{item.evidence_excerpt}”</blockquote>
                     <h3>{item.retrieval_target}</h3>
@@ -234,6 +236,13 @@ function App() {
                       <span>{friendlyLabel(item.failure_stage)} · {friendlyLabel(item.retrieval_outcome)}</span>
                       <a href={item.canonical_url} target="_blank" rel="noreferrer">Open source ↗</a>
                     </div>
+                    {item.audit_notes && (
+                      <details className="audit-detail">
+                        <summary>Why this evidence was retained</summary>
+                        <p>{item.audit_notes}</p>
+                        <small>AI extraction confidence before review: {Math.round(item.extraction_confidence * 100)}% · Audit: {friendlyLabel(item.audit_verdict ?? "unknown")}</small>
+                      </details>
+                    )}
                   </article>
                 );
               })}
@@ -271,7 +280,7 @@ function App() {
 
         <section className="next-step">
           <div><p className="eyebrow">Next implementation gate</p><h2>Broaden evidence before defining the opportunity.</h2></div>
-          <p>Add Google Play, Reddit, and support-community evidence, then human-audit a stratified sample before comparing failure stages.</p>
+          <p>Expand beyond the first support-community sample, then human-audit evidence across sources before comparing failure stages.</p>
         </section>
       </main>
 

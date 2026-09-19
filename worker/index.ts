@@ -1,4 +1,4 @@
-import { collectYouTubeEvidence, ingestAppStoreEvidence, timingSafeSecretMatch } from "./collection";
+import { collectYouTubeEvidence, ingestAppStoreEvidence, ingestGoogleSupportEvidence, timingSafeSecretMatch } from "./collection";
 
 type EvidenceFilters = {
   limit: number;
@@ -131,6 +131,8 @@ async function listEvidence(db: D1Database, filters: EvidenceFilters): Promise<R
       e.id, e.retrieval_target, e.evidence_excerpt, e.remembered_clues_json,
       e.forgotten_context_json, e.search_attempt, e.failure_stage, e.workaround,
       e.retrieval_outcome, e.extraction_confidence, e.is_human_verified,
+      (SELECT a.verdict FROM human_audits a WHERE a.evidence_id = e.id ORDER BY a.audited_at DESC LIMIT 1) AS audit_verdict,
+      (SELECT a.notes FROM human_audits a WHERE a.evidence_id = e.id ORDER BY a.audited_at DESC LIMIT 1) AS audit_notes,
       s.source_kind, s.platform, s.canonical_url, s.published_at, s.is_simulated
     FROM evidence_units e
     JOIN raw_documents d ON d.id = e.document_id
@@ -217,6 +219,19 @@ export default {
           return jsonResponse({ error: "payload_too_large", message: "A bounded JSON payload is required." }, 413);
         }
         return jsonResponse({ data: await ingestAppStoreEvidence(env, await request.json()) }, 201);
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/internal/ingest/google-support") {
+        const authorization = request.headers.get("Authorization") ?? "";
+        const providedToken = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+        if (!providedToken || !await timingSafeSecretMatch(providedToken, env.COLLECTION_TRIGGER_TOKEN)) {
+          return jsonResponse({ error: "unauthorized", message: "A valid collection token is required." }, 401);
+        }
+        const contentLength = Number(request.headers.get("Content-Length") ?? "0");
+        if (!Number.isFinite(contentLength) || contentLength < 2 || contentLength > 250_000) {
+          return jsonResponse({ error: "payload_too_large", message: "A bounded JSON payload is required." }, 413);
+        }
+        return jsonResponse({ data: await ingestGoogleSupportEvidence(env, await request.json()) }, 201);
       }
 
       if (request.method === "GET" && url.pathname === "/api/evidence") {

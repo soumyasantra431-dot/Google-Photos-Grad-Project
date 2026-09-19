@@ -48,6 +48,9 @@ Public APIs and auditable imports
 - **Source connectors** collect only public, permitted material and preserve canonical URLs.
 - **Local Apple collector** reads public review feeds, removes reviewer identities, and submits a
   bounded batch because Apple blocks the feed from Cloudflare edge addresses.
+- **Local Google support collector** re-fetches a small curated set of public thread pages,
+  extracts original posts or explicitly selected replies, skips unknown page formats, and submits a bounded batch. Its
+  HTML parser is source-specific and must be monitored for changes; it is not a general forum API.
 - **D1** is the system of record for documents, evidence units, classifications, and audits.
 - **Groq** classifies and synthesizes; it does not invent or calculate dashboard totals.
 - **Worker API** validates requests and queries bound Cloudflare services.
@@ -80,11 +83,18 @@ Public APIs and auditable imports
 - The first broad YouTube run produced eight deletion/recovery records; all were audited and
   excluded without deleting their provenance.
 - A stricter YouTube run retained zero records rather than manufacturing relevance.
-- The first Apple review run scanned 112 reviews and retained one traceable retrieval episode.
+- The first Apple review run scanned 112 reviews and initially retained one record; human review
+  found it was about wrong date metadata after a successful find, so it is excluded.
+- The first support run fetched 11 original posts, analyzed 7, and initially retained 5. Human
+  audit excluded 4 generic search complaints and corrected the one specific re-finding episode.
+- A reply-focused run captured two specific user replies. The first pass exposed a false-positive
+  deletion keyword filter; after a regression-tested correction, both were retained and audited.
+- The current admitted corpus contains three human-reviewed Google Photos Community episodes.
+  This is a purposive, small qualitative sample, not a prevalence estimate or opportunity ranking.
 
 ## Deferred
 
-- Google Play, Reddit, and Google support-community connectors.
+- Google Play and Reddit connectors, subject to viable access and platform terms.
 - Scheduled execution through a remote-compatible source or approved workflow runner.
 - R2 raw-payload archive if source payload volume requires it.
 - Vectorize semantic retrieval after the evidence corpus is large enough to justify it.

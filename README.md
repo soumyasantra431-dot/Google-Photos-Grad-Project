@@ -5,8 +5,8 @@ specific photos when their memory is incomplete.
 
 ## Current stage
 
-Stage 3 adds authenticated YouTube collection, a local Apple App Store feed collector, Groq
-structured extraction, scope guardrails, and a live evidence explorer. Raw source language remains
+Stage 3 adds authenticated YouTube collection, local Apple App Store and curated Google Photos
+Community collectors, Groq structured extraction, scope guardrails, and a live evidence explorer. Raw source language remains
 separate from AI interpretation, and rejected or simulated material is excluded from findings.
 
 ## Local setup
@@ -49,12 +49,18 @@ Optional filters are `failureStage`, `sourceKind`, and `limit` (1-50).
 - Apple blocks its public review feed from Cloudflare edge addresses, so `pnpm.cmd run
   collect:app-store` fetches the public feed locally and sends a bounded, de-identified batch to
   the authenticated ingestion endpoint.
+- `pnpm.cmd run collect:google-support -- --dry-run` checks a bounded list of public thread pages
+  without writing data. `pnpm.cmd run collect:google-support` sends original posts and selected
+  user replies to the same protected evidence pipeline; `--replies-only` limits a run to replies.
+  A page that changes format is skipped, not guessed.
+- The Google Play Developer API grants review access for the developer's own apps, not a public
+  feed for arbitrary apps; a Google Play connector needs an explicitly assessed source path.
 - Provider credentials and the collection trigger token are declared as required Cloudflare
   secrets and never stored in source control.
 
 ## Secrets
 
-When integrations begin, copy `.dev.vars.example` to `.dev.vars` and add values locally. Never
+For local Worker development, copy `.dev.vars.example` to `.dev.vars` and add values locally. Never
 commit `.dev.vars`, `.env`, API keys, or tokens.
 
 ## Architecture
