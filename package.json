@@ -13,6 +13,7 @@
     "db:migrate:remote": "wrangler d1 migrations apply photo-recall-evidence --remote",
     "collect:app-store": "node scripts/collect-app-store.mjs",
     "collect:google-support": "node scripts/collect-google-support.mjs",
+    "ingest:curated": "node scripts/ingest-curated-public.mjs",
     "cf-typegen": "wrangler types"
   },
   "dependencies": {

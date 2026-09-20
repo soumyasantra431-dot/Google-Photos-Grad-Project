@@ -1,5 +1,7 @@
 // A bounded, researcher-curated set of public Google Photos community threads.
 // Search results are discovery leads, not evidence; the source page is fetched again here.
+import { readFile } from "node:fs/promises";
+
 const threadIds = [
   "373711674", // classic search, remembered object clues
   "332668136", // remembered person, face grouping
@@ -20,11 +22,19 @@ const replySeeds = [
   { threadId: "332668136", messageId: "333104606" }, // name search failed because second face was not indexed
   { threadId: "5343478", messageId: "25656087" },   // remembered location, explicitly forgot when
 ];
+const discoveredSeeds = JSON.parse(await readFile(new URL("../research/source-seeds/google-support-2026-09-20.json", import.meta.url), "utf8"));
+const discoveredThreadIds = discoveredSeeds.thread_ids.filter((id) => /^\d{1,12}$/.test(id));
+const batch2Only = process.argv.includes("--batch2-only");
+const batch2Seeds = JSON.parse(await readFile(new URL("../research/source-seeds/google-support-2026-09-20-batch2.json", import.meta.url), "utf8"));
+const batch2ThreadIds = batch2Seeds.thread_ids.filter((id) => /^\d{1,12}$/.test(id));
 
 const endpoint = process.env.DISCOVERY_URL ?? "https://google-photos-grad-project.soumyasantra431.workers.dev";
 const triggerToken = process.env.COLLECTION_TRIGGER_TOKEN;
 const dryRun = process.argv.includes("--dry-run");
 const repliesOnly = process.argv.includes("--replies-only");
+const startBatchArg = process.argv.find((arg) => arg.startsWith("--start-batch="));
+const startBatch = startBatchArg ? Number(startBatchArg.split("=")[1]) : 1;
+if (!Number.isInteger(startBatch) || startBatch < 1) throw new Error("--start-batch must be a positive integer");
 
 if (!dryRun && !triggerToken) {
   throw new Error("COLLECTION_TRIGGER_TOKEN must be provided in the process environment");
@@ -88,8 +98,8 @@ function extractReply(html, threadId, messageId) {
 const posts = [];
 const failures = [];
 const targets = [
-  ...(!repliesOnly ? threadIds.map((threadId) => ({ threadId })) : []),
-  ...replySeeds,
+  ...(!repliesOnly ? (batch2Only ? batch2ThreadIds : [...new Set([...threadIds, ...discoveredThreadIds])]).map((threadId) => ({ threadId })) : []),
+  ...(!batch2Only ? replySeeds : []),
 ];
 for (const { threadId, messageId } of targets) {
   try {
@@ -110,12 +120,19 @@ if (dryRun) {
   console.log(JSON.stringify({ extracted: posts.map(({ threadId, postId, title, body }) => ({ threadId, postId, title, bodyLength: body.length, preview: body.slice(0, 120) })), failures }, null, 2));
 } else {
   if (posts.length === 0) throw new Error("No source posts could be verified; nothing was sent");
-  const response = await fetch(`${endpoint}/api/internal/ingest/google-support`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${triggerToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify(posts),
-  });
-  const result = await response.json();
-  if (!response.ok) throw new Error(`Discovery engine returned ${response.status}: ${JSON.stringify(result)}`);
-  console.log(JSON.stringify({ fetchedPosts: posts.length, failedFetches: failures, ingestion: result.data }, null, 2));
+  const ingestions = [];
+  for (let offset = 0; offset < posts.length; offset += 25) {
+    if (offset / 25 + 1 < startBatch) continue;
+    const batch = posts.slice(offset, offset + 25);
+    const response = await fetch(`${endpoint}/api/internal/ingest/google-support`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${triggerToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify(batch),
+      signal: AbortSignal.timeout(120000),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(`Discovery engine batch ${offset / 25 + 1} returned ${response.status}: ${JSON.stringify(result)}`);
+    ingestions.push(result.data);
+  }
+  console.log(JSON.stringify({ fetchedPosts: posts.length, failedFetches: failures, ingestions }, null, 2));
 }

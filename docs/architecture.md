@@ -22,10 +22,10 @@ The first deployable unit contains:
 This creates a reversible, testable evidence chain from collection through AI extraction and
 deterministic reporting.
 
-## Planned evidence flow
+## Evidence flow
 
 ```text
-Public APIs and auditable imports
+Public API, feed, page, and verified-excerpt imports
               |
               v
        Source normalization
@@ -52,8 +52,10 @@ Public APIs and auditable imports
   extracts original posts or explicitly selected replies, skips unknown page formats, and submits a bounded batch. Its
   HTML parser is source-specific and must be monitored for changes; it is not a general forum API.
 - **D1** is the system of record for documents, evidence units, classifications, and audits.
-- **Review queue** preserves screened Community candidates and AI rejection reasons so a human can
-  recover relevant cases without lowering the global confidence threshold.
+- **Verified-excerpt import** accepts small source-linked excerpts from public Reddit, forum, or
+  social posts. It is a manual curation pathway, not a bulk Reddit or social-media API connector.
+- **Review queue** preserves candidates and AI rejection reasons so a human can inspect omissions
+  without lowering the global confidence threshold. Reviewed evidence is frozen on repeat ingestion.
 - **Groq** classifies and synthesizes; it does not invent or calculate dashboard totals.
 - **Worker API** validates requests and queries bound Cloudflare services.
 - **React interface** presents evidence, coverage, uncertainty, and opportunity comparisons.
@@ -67,7 +69,7 @@ Public APIs and auditable imports
 - Model name, schema version, extraction confidence, and human verification are retained.
 - Corpus patterns are reported as evidence patterns, not population prevalence.
 
-## Stage 2 acceptance criteria
+## Operational checks
 
 - TypeScript type-check succeeds.
 - Vite production build succeeds.
@@ -81,27 +83,26 @@ Public APIs and auditable imports
 
 ## Current collection quality
 
-- YouTube is operational but low-yield for vague-memory retrieval.
-- The first broad YouTube run produced eight deletion/recovery records; all were audited and
-  excluded without deleting their provenance.
-- A stricter YouTube run retained zero records rather than manufacturing relevance.
-- The first Apple review run scanned 112 reviews and initially retained one record; human review
-  found it was about wrong date metadata after a successful find, so it is excluded.
-- The first support run fetched 11 original posts, analyzed 7, and initially retained 5. Human
-  audit excluded 4 generic search complaints and corrected the one specific re-finding episode.
-- A reply-focused run captured two specific user replies. The first pass exposed a false-positive
-  deletion keyword filter; after a regression-tested correction, both were retained and audited.
-- The first admitted corpus contained three human-reviewed Google Photos Community episodes.
-  Two more source-reviewed replies were subsequently admitted: a name-search/face-indexing episode
-  and an explicitly forgotten-date/map-browsing request. This is a purposive, small qualitative
-  sample from one source family, not a prevalence estimate or opportunity ranking.
+- Google Photos Community has the richest product-specific retrieval episodes, but search-engine
+  seeded pages are not a random sample. The collector archives both in-scope and rejected posts.
+- Apple public review feeds provide broad coverage across three storefronts, but general app
+  reviews rarely describe a particular sought photo, remembered clue, and attempted search.
+- Reddit's verified-excerpt path adds concrete first-person cases and diverse workarounds; it is
+  purposive and small. Short excerpts can omit context, so human reviewers consult the linked post
+  before correcting any AI labels. The original model output remains archived.
+- YouTube comment sampling was operational but low-yield; earlier rejected comments were not all
+  archived, so its candidate count is not comparable to the newer sources.
+- Groq sometimes omits array items or rejects its own enum-constrained schema. The pipeline retries
+  missing items, uses shape-constrained output, drops unrecognized code values, and keeps source
+  quotes and human audit separate. A failed batch is recorded rather than silently counted.
 - Four deterministic question views separate photo target types, remembered clue types, explicitly
   forgotten context, and attempted or requested search methods. Unstated details are not coded as
   forgotten; exact typed queries are reported only when the user's words are available.
 
 ## Deferred
 
-- Google Play and Reddit connectors, subject to viable access and platform terms.
+- Google Play and automated Reddit/social/forum connectors, subject to viable access and platform
+  terms. The existing Reddit path only handles manually verified short excerpts.
 - Scheduled execution through a remote-compatible source or approved workflow runner.
 - R2 raw-payload archive if source payload volume requires it.
 - Vectorize semantic retrieval after the evidence corpus is large enough to justify it.

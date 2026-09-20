@@ -62,6 +62,8 @@ type SourceCoverage = {
     runCount: number;
     recordsProcessedAcrossRuns: number;
     initiallyRetainedAcrossRuns: number;
+    uniqueCandidates: number;
+    modelScreenedCandidates: number;
     admittedEpisodes: number;
   }>;
   note: string;
@@ -293,7 +295,7 @@ function App() {
               {system.sourceCoverage.sources.map((source) => (
                 <div className="coverage-row" key={source.sourceKind}>
                   <strong>{friendlyLabel(source.sourceKind)}</strong>
-                  <span>{source.status === "attempted" ? `${source.runCount} runs` : "Not connected"}</span>
+                  <span>{source.status === "attempted" ? `${source.uniqueCandidates} unique candidates · ${source.runCount} runs` : "Not connected"}</span>
                   <span>{source.admittedEpisodes} admitted {source.admittedEpisodes === 1 ? "episode" : "episodes"}</span>
                 </div>
               ))}

@@ -406,7 +406,7 @@ blockquote {
 
 .coverage-row {
   display: grid;
-  grid-template-columns: 1fr 170px 170px;
+  grid-template-columns: 1fr 290px 170px;
   gap: 20px;
   align-items: center;
   padding: 18px 24px;

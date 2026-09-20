@@ -1,4 +1,4 @@
-import { collectYouTubeEvidence, ingestAppStoreEvidence, ingestGoogleSupportEvidence, timingSafeSecretMatch } from "./collection";
+import { collectYouTubeEvidence, ingestAppStoreEvidence, ingestCuratedPublicEvidence, ingestGoogleSupportEvidence, timingSafeSecretMatch } from "./collection";
 import { buildResearchQuestions, type ResearchRow } from "./research";
 
 type EvidenceFilters = {
@@ -202,7 +202,7 @@ async function getResearchQuestions(db: D1Database): Promise<Response> {
 }
 
 async function getSourceCoverage(db: D1Database): Promise<Response> {
-  const [runs, admitted] = await db.batch([
+  const [runs, admitted, candidates] = await db.batch([
     db.prepare(`
       SELECT source_kind, COUNT(*) AS run_count,
         SUM(records_seen) AS records_processed_across_runs,
@@ -217,6 +217,11 @@ async function getSourceCoverage(db: D1Database): Promise<Response> {
       WHERE s.include_in_findings = 1 AND s.is_simulated = 0
       GROUP BY s.source_kind
     `),
+    db.prepare(`
+      SELECT source_kind, COUNT(*) AS unique_candidates,
+        SUM(CASE WHEN model_output_json IS NOT NULL THEN 1 ELSE 0 END) AS model_screened_candidates
+      FROM review_candidates GROUP BY source_kind
+    `),
   ]);
   const runRows = runs.results as Array<{
     source_kind: string;
@@ -226,8 +231,10 @@ async function getSourceCoverage(db: D1Database): Promise<Response> {
     latest_run_at: string | null;
   }>;
   const admittedRows = admitted.results as Array<{ source_kind: string; admitted_episodes: number }>;
+  const candidateRows = candidates.results as Array<{ source_kind: string; unique_candidates: number; model_screened_candidates: number }>;
   const runByKind = new Map(runRows.map((row) => [row.source_kind, row]));
   const admittedByKind = new Map(admittedRows.map((row) => [row.source_kind, row.admitted_episodes]));
+  const candidateByKind = new Map(candidateRows.map((row) => [row.source_kind, row]));
   const kinds = ["google_support", "youtube", "app_store", "google_play", "reddit", "social", "forum"];
   return jsonResponse({
     sources: kinds.map((sourceKind) => {
@@ -238,11 +245,13 @@ async function getSourceCoverage(db: D1Database): Promise<Response> {
         runCount: Number(run?.run_count ?? 0),
         recordsProcessedAcrossRuns: Number(run?.records_processed_across_runs ?? 0),
         initiallyRetainedAcrossRuns: Number(run?.initially_retained_across_runs ?? 0),
+        uniqueCandidates: Number(candidateByKind.get(sourceKind)?.unique_candidates ?? 0),
+        modelScreenedCandidates: Number(candidateByKind.get(sourceKind)?.model_screened_candidates ?? 0),
         admittedEpisodes: admittedByKind.get(sourceKind) ?? 0,
         latestRunAt: run?.latest_run_at ?? null,
       };
     }),
-    note: "Processed and initially retained counts sum all collection runs and include repeat scans. Admitted episodes are deduplicated current records.",
+    note: "Processed counts sum repeat scans. Unique candidates are retained public posts; model-screened is a subset, and admitted episodes are deduplicated evidence. Earlier YouTube runs did not archive rejected comments.",
   });
 }
 
@@ -311,6 +320,19 @@ export default {
           return jsonResponse({ error: "payload_too_large", message: "A bounded JSON payload is required." }, 413);
         }
         return jsonResponse({ data: await ingestGoogleSupportEvidence(env, await request.json()) }, 201);
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/internal/ingest/curated-public") {
+        const authorization = request.headers.get("Authorization") ?? "";
+        const providedToken = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+        if (!providedToken || !await timingSafeSecretMatch(providedToken, env.COLLECTION_TRIGGER_TOKEN)) {
+          return jsonResponse({ error: "unauthorized", message: "A valid collection token is required." }, 401);
+        }
+        const contentLength = Number(request.headers.get("Content-Length") ?? "0");
+        if (!Number.isFinite(contentLength) || contentLength < 2 || contentLength > 100_000) {
+          return jsonResponse({ error: "payload_too_large", message: "A bounded JSON payload is required." }, 413);
+        }
+        return jsonResponse({ data: await ingestCuratedPublicEvidence(env, await request.json()) }, 201);
       }
 
       if (request.method === "GET" && url.pathname === "/api/evidence") {
