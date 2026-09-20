@@ -17,6 +17,8 @@ const threadIds = [
 const replySeeds = [
   { threadId: "299038372", messageId: "299568087" }, // daughter at beach, same sweater
   { threadId: "55525345", messageId: "55543494" },   // unnamed bathroom photo, searched folders
+  { threadId: "332668136", messageId: "333104606" }, // name search failed because second face was not indexed
+  { threadId: "5343478", messageId: "25656087" },   // remembered location, explicitly forgot when
 ];
 
 const endpoint = process.env.DISCOVERY_URL ?? "https://google-photos-grad-project.soumyasantra431.workers.dev";
@@ -91,7 +93,7 @@ const targets = [
 ];
 for (const { threadId, messageId } of targets) {
   try {
-    const url = `https://support.google.com/photos/thread/${threadId}?hl=en`;
+    const url = `https://support.google.com/photos/thread/${threadId}?hl=en${messageId ? `&msgid=${messageId}` : ""}`;
     const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
     if (!response.ok) throw new Error(`public page returned ${response.status}`);
     const contentLength = Number(response.headers.get("content-length") ?? "0");

@@ -5,9 +5,11 @@ specific photos when their memory is incomplete.
 
 ## Current stage
 
-Stage 3 adds authenticated YouTube collection, local Apple App Store and curated Google Photos
-Community collectors, Groq structured extraction, scope guardrails, and a live evidence explorer. Raw source language remains
-separate from AI interpretation, and rejected or simulated material is excluded from findings.
+The current build combines authenticated YouTube collection, local Apple App Store and curated
+Google Photos Community collectors, Groq structured extraction, a review queue for screened
+Community posts, and question-led evidence exploration. Raw source language remains separate from
+AI interpretation and human corrections. Rejected or simulated material is excluded from findings.
+The admitted corpus is still a small, single-platform qualitative sample, not a prevalence estimate.
 
 ## Local setup
 
@@ -40,6 +42,9 @@ Wrangler configuration so both the API and static interface are published togeth
 - `GET /api/evidence` lists only real, included evidence by default.
 - `GET /api/evidence/:id` returns a traceable evidence record and its source text.
 - `GET /api/evidence?includeSimulated=true` is an explicit test-only view.
+- `GET /api/research-questions` answers the four required questions with coded episode counts,
+  source links, exact-query availability, and explicit unknowns.
+- `GET /api/source-coverage` distinguishes source families attempted from evidence admitted.
 
 Optional filters are `failureStage`, `sourceKind`, and `limit` (1-50).
 
@@ -57,6 +62,9 @@ Optional filters are `failureStage`, `sourceKind`, and `limit` (1-50).
   feed for arbitrary apps; a Google Play connector needs an explicitly assessed source path.
 - Provider credentials and the collection trigger token are declared as required Cloudflare
   secrets and never stored in source control.
+- Screened Google Photos Community candidates, including low-confidence and missing model outputs,
+  are preserved in `review_candidates` for manual audit. The human-coded corrections are recorded
+  in `research/audits/`; these are never presented as unedited Groq outputs.
 
 ## Secrets
 

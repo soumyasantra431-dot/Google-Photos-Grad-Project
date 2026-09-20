@@ -82,6 +82,13 @@ type Extraction = {
   workaround: string | null;
   retrieval_outcome: "found" | "not_found" | "abandoned" | "unclear";
   confidence: number;
+  photo_kind: "photo" | "video" | "screenshot" | "document_image" | "unknown";
+  target_types: Array<"people" | "outdoor_place" | "indoor_place" | "object" | "animal" | "document" | "screenshot" | "event" | "other" | "unknown">;
+  remembered_clue_types: Array<"person" | "place" | "object" | "appearance" | "event" | "approximate_time" | "text" | "animal" | "memory_surface" | "library_state" | "reference_image" | "other">;
+  explicitly_forgotten: Array<"date" | "place" | "album" | "filename" | "search_words" | "other">;
+  search_methods: Array<"typed_query" | "timeline_browse" | "album_browse" | "folder_browse" | "visual_scan" | "reference_image_request" | "map_browse_request" | "other">;
+  exact_queries: string[];
+  existence_status: "confirmed" | "uncertain";
 };
 
 type GroqResponse = {
@@ -113,6 +120,7 @@ export type GoogleSupportCollectionSummary = {
   postsAnalyzed: number;
   evidenceStored: number;
   model: string;
+  decisions: Record<string, number>;
 };
 
 async function fetchJson<T>(url: URL | string, init?: RequestInit): Promise<T> {
@@ -282,11 +290,19 @@ function extractionSchema() {
               enum: ["found", "not_found", "abandoned", "unclear"],
             },
             confidence: { type: "number" },
+            photo_kind: { type: "string", enum: ["photo", "video", "screenshot", "document_image", "unknown"] },
+            target_types: { type: "array", items: { type: "string", enum: ["people", "outdoor_place", "indoor_place", "object", "animal", "document", "screenshot", "event", "other", "unknown"] } },
+            remembered_clue_types: { type: "array", items: { type: "string", enum: ["person", "place", "object", "appearance", "event", "approximate_time", "text", "animal", "memory_surface", "library_state", "reference_image", "other"] } },
+            explicitly_forgotten: { type: "array", items: { type: "string", enum: ["date", "place", "album", "filename", "search_words", "other"] } },
+            search_methods: { type: "array", items: { type: "string", enum: ["typed_query", "timeline_browse", "album_browse", "folder_browse", "visual_scan", "reference_image_request", "map_browse_request", "other"] } },
+            exact_queries: { type: "array", items: { type: "string" } },
+            existence_status: { type: "string", enum: ["confirmed", "uncertain"] },
           },
           required: [
             "index", "relevant", "retrieval_target", "evidence_excerpt", "remembered_clues",
             "forgotten_context", "search_attempt", "failure_stage", "workaround",
-            "retrieval_outcome", "confidence",
+            "retrieval_outcome", "confidence", "photo_kind", "target_types", "remembered_clue_types",
+            "explicitly_forgotten", "search_methods", "exact_queries", "existence_status",
           ],
           additionalProperties: false,
         },
@@ -304,6 +320,13 @@ function isExtraction(value: unknown): value is Extraction {
     && typeof item.relevant === "boolean"
     && Array.isArray(item.remembered_clues)
     && Array.isArray(item.forgotten_context)
+    && Array.isArray(item.remembered_clue_types)
+    && Array.isArray(item.target_types)
+    && Array.isArray(item.explicitly_forgotten)
+    && Array.isArray(item.search_methods)
+    && Array.isArray(item.exact_queries)
+    && typeof item.photo_kind === "string"
+    && typeof item.existence_status === "string"
     && typeof item.failure_stage === "string"
     && typeof item.retrieval_outcome === "string"
     && typeof item.confidence === "number";
@@ -331,6 +354,9 @@ async function extractBatch(apiKey: string, candidates: Array<{ body: string }>)
             "Deletion, trash, recovery, backup, upload, sync, missing-file, and storage problems are always irrelevant.",
             "General complaints, feature requests without a retrieval episode, tutorials, praise, and unrelated comments are not relevant.",
             "Do not infer details absent from the source text. evidence_excerpt must be an exact contiguous quote from the source text.",
+            "Code photo_kind, target_types, and clue types only when grounded in the post. target_types describes what the sought image depicts, not the user's complaint. explicitly_forgotten is only for a detail the user says they cannot remember; an unmentioned detail is not forgotten.",
+            "exact_queries contains only verbatim user-reported search strings, never suggested queries or paraphrases. Leave it empty if exact words were not stated.",
+            "search_methods captures actions tried or methods explicitly requested; reference_image_request and map_browse_request are requests, not proof these features were used. Existence is confirmed only when the post says the specific image was seen or later found.",
             "Failure stages: expression = cannot formulate remembered clues; interpretation = system misunderstands clues; evaluation = results are hard to scan or compare; refinement = user cannot recover after poor results; unknown = evidence is insufficient.",
           ].join(" "),
         },
@@ -361,6 +387,27 @@ async function executeInChunks(db: D1Database, statements: D1PreparedStatement[]
   for (let index = 0; index < statements.length; index += 50) {
     await db.batch(statements.slice(index, index + 50));
   }
+}
+
+async function storeCoding(db: D1Database, evidenceId: string, extraction: Extraction, sourceText: string): Promise<void> {
+  const exactQueries = [...new Set(extraction.exact_queries
+    .map((query) => query.trim())
+    .filter((query) => query.length > 0 && query.length <= 120 && sourceText.toLocaleLowerCase().includes(query.toLocaleLowerCase())))];
+  await db.prepare(`
+    UPDATE evidence_units SET photo_kind = ?, target_types_json = ?, remembered_clue_types_json = ?,
+      explicitly_forgotten_json = ?, search_methods_json = ?, exact_queries_json = ?,
+      existence_status = ?, coding_status = 'ai_v2'
+    WHERE id = ? AND is_human_verified = 0
+  `).bind(
+    extraction.photo_kind,
+    JSON.stringify([...new Set(extraction.target_types)]),
+    JSON.stringify([...new Set(extraction.remembered_clue_types)]),
+    JSON.stringify([...new Set(extraction.explicitly_forgotten)]),
+    JSON.stringify([...new Set(extraction.search_methods)]),
+    JSON.stringify(exactQueries),
+    extraction.existence_status,
+    evidenceId,
+  ).run();
 }
 
 async function storeExtraction(
@@ -446,6 +493,7 @@ async function storeExtraction(
     ),
   ]);
 
+  await storeCoding(db, evidenceId, extraction, comment.body);
   return true;
 }
 
@@ -528,6 +576,7 @@ async function storeAppStoreExtraction(
     ),
   ]);
 
+  await storeCoding(db, evidenceId, extraction, review.body);
   return true;
 }
 
@@ -536,10 +585,11 @@ async function storeGoogleSupportExtraction(
   runId: string,
   post: GoogleSupportCandidate,
   extraction: Extraction,
-): Promise<boolean> {
-  if (!extraction.relevant || extraction.confidence < 0.8) return false;
-  if (!extraction.retrieval_target || !extraction.evidence_excerpt) return false;
-  if (!post.body.toLocaleLowerCase().includes(extraction.evidence_excerpt.toLocaleLowerCase())) return false;
+): Promise<string> {
+  if (!extraction.relevant) return "model_out_of_scope";
+  if (extraction.confidence < 0.8) return "low_confidence";
+  if (!extraction.retrieval_target || !extraction.evidence_excerpt) return "missing_target_or_quote";
+  if (!post.body.toLocaleLowerCase().includes(extraction.evidence_excerpt.toLocaleLowerCase())) return "quote_not_verbatim";
 
   const identityHash = await sha256Hex(post.postId === post.threadId
     ? `google-support:${post.threadId}`
@@ -549,7 +599,7 @@ async function storeGoogleSupportExtraction(
   const evidenceId = `ev_${identityHash.slice(0, 24)}`;
   const reviewed = await db.prepare("SELECT is_human_verified FROM evidence_units WHERE id = ?")
     .bind(evidenceId).first<{ is_human_verified: number }>();
-  if (reviewed?.is_human_verified === 1) return false;
+  if (reviewed?.is_human_verified === 1) return "already_human_reviewed";
   const contentHash = await sha256Hex(post.body);
   const now = new Date().toISOString();
   const canonicalUrl = `https://support.google.com/photos/thread/${post.threadId}?hl=en${post.postId === post.threadId ? "" : `&msgid=${post.postId}`}`;
@@ -605,7 +655,35 @@ async function storeGoogleSupportExtraction(
     ),
   ]);
 
-  return true;
+  await storeCoding(db, evidenceId, extraction, post.body);
+  return "stored";
+}
+
+async function recordGoogleSupportDecision(
+  db: D1Database,
+  runId: string,
+  post: GoogleSupportCandidate,
+  extraction: Extraction | null,
+  decision: string,
+): Promise<void> {
+  const identityHash = await sha256Hex(`google-support-review:${post.threadId}:${post.postId}`);
+  const url = `https://support.google.com/photos/thread/${post.threadId}?hl=en${post.postId === post.threadId ? "" : `&msgid=${post.postId}`}`;
+  await db.prepare(`
+    INSERT INTO review_candidates (
+      id, source_kind, canonical_url, external_id, title, body,
+      model_output_json, decision, model_confidence, collection_run_id, collected_at
+    ) VALUES (?, 'google_support', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      title = excluded.title, body = excluded.body,
+      model_output_json = excluded.model_output_json, decision = excluded.decision,
+      model_confidence = excluded.model_confidence,
+      collection_run_id = excluded.collection_run_id, collected_at = excluded.collected_at
+    WHERE review_candidates.reviewed_at IS NULL
+  `).bind(
+    `rev_${identityHash.slice(0, 24)}`, url, `${post.threadId}:${post.postId}`,
+    post.title, post.body, extraction ? JSON.stringify(extraction) : null,
+    decision, extraction?.confidence ?? null, runId, new Date().toISOString(),
+  ).run();
 }
 
 export async function ingestGoogleSupportEvidence(env: Env, payload: unknown): Promise<GoogleSupportCollectionSummary> {
@@ -621,14 +699,23 @@ export async function ingestGoogleSupportEvidence(env: Env, payload: unknown): P
     if (posts.length === 0) throw new Error("Google Support payload contained no valid posts");
     const postsForAnalysis = posts.filter((post) => hasRetrievalSignal(post) && !isClearlyOutOfScope(post));
     let evidenceStored = 0;
+    const decisions: Record<string, number> = { prefiltered_out: posts.length - postsForAnalysis.length };
+
+    for (const post of posts) {
+      if (!postsForAnalysis.includes(post)) await recordGoogleSupportDecision(env.DB, runId, post, null, "prefiltered_out");
+    }
 
     for (let offset = 0; offset < postsForAnalysis.length; offset += GROQ_BATCH_SIZE) {
       const batch = postsForAnalysis.slice(offset, offset + GROQ_BATCH_SIZE);
       const extractions = await extractBatch(env.GROQ_API_KEY, batch);
-      for (const extraction of extractions) {
-        const post = batch[extraction.index];
-        if (!post) continue;
-        if (await storeGoogleSupportExtraction(env.DB, runId, post, extraction)) evidenceStored += 1;
+      const extractionByIndex = new Map(extractions.map((item) => [item.index, item]));
+      for (let index = 0; index < batch.length; index++) {
+        const post = batch[index];
+        const extraction = extractionByIndex.get(index) ?? null;
+        const decision = extraction ? await storeGoogleSupportExtraction(env.DB, runId, post, extraction) : "no_model_output";
+        await recordGoogleSupportDecision(env.DB, runId, post, extraction, decision);
+        decisions[decision] = (decisions[decision] ?? 0) + 1;
+        if (decision === "stored") evidenceStored += 1;
       }
     }
 
@@ -640,7 +727,7 @@ export async function ingestGoogleSupportEvidence(env: Env, payload: unknown): P
 
     const summary: GoogleSupportCollectionSummary = {
       runId, postsScanned: posts.length, postsAnalyzed: postsForAnalysis.length,
-      evidenceStored, model: GROQ_MODEL,
+      evidenceStored, model: GROQ_MODEL, decisions,
     };
     console.log(JSON.stringify({ event: "google_support_collection_completed", ...summary }));
     return summary;

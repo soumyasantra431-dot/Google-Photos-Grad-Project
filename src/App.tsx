@@ -17,6 +17,7 @@ type Evidence = {
   failure_stage: string;
   retrieval_outcome: string;
   extraction_confidence: number;
+  model_name: string;
   is_human_verified: number;
   audit_verdict: string | null;
   audit_notes: string | null;
@@ -37,6 +38,35 @@ type CollectionRun = {
 
 type Breakdown = { source_kind?: string; failure_stage?: string; evidence_count: number };
 
+type ResearchQuestions = {
+  coverage: { admittedEpisodes: number; codedEpisodes: number; humanVerifiedEpisodes: number; sourceKinds: string[]; truncated: boolean };
+  questions: Array<{
+    id: string;
+    question: string;
+    caveat: string;
+    observedEpisodes: number;
+    evidenceState: "not_observed" | "early_directional" | "multi_source_directional";
+    patterns: Array<{
+      code: string;
+      episodes: number;
+      examples: Array<{ id: string; source_text: string; canonical_url: string; source_kind: string }>;
+    }>;
+    reportedExactQueries?: Array<{ query: string; id: string; canonical_url: string }>;
+  }>;
+};
+
+type SourceCoverage = {
+  sources: Array<{
+    sourceKind: string;
+    status: "attempted" | "not_connected";
+    runCount: number;
+    recordsProcessedAcrossRuns: number;
+    initiallyRetainedAcrossRuns: number;
+    admittedEpisodes: number;
+  }>;
+  note: string;
+};
+
 type SystemState =
   | { kind: "loading" }
   | {
@@ -49,6 +79,8 @@ type SystemState =
       runs: CollectionRun[];
       bySource: Breakdown[];
       byFailureStage: Breakdown[];
+      research: ResearchQuestions;
+      sourceCoverage: SourceCoverage;
     }
   | { kind: "offline" };
 
@@ -82,13 +114,15 @@ function App() {
 
     async function loadSystem() {
       try {
-        const [healthResponse, statsResponse, evidenceResponse, runsResponse] = await Promise.all([
+        const [healthResponse, statsResponse, evidenceResponse, runsResponse, researchResponse, coverageResponse] = await Promise.all([
           fetch("/api/health", { signal: controller.signal }),
           fetch("/api/stats", { signal: controller.signal }),
           fetch("/api/evidence?limit=12", { signal: controller.signal }),
           fetch("/api/collection-runs", { signal: controller.signal }),
+          fetch("/api/research-questions", { signal: controller.signal }),
+          fetch("/api/source-coverage", { signal: controller.signal }),
         ]);
-        if (![healthResponse, statsResponse, evidenceResponse, runsResponse].every((response) => response.ok)) {
+        if (![healthResponse, statsResponse, evidenceResponse, runsResponse, researchResponse, coverageResponse].every((response) => response.ok)) {
           throw new Error("System check failed");
         }
 
@@ -102,6 +136,8 @@ function App() {
         };
         const evidence = (await evidenceResponse.json()) as { data?: Evidence[] };
         const runs = (await runsResponse.json()) as { data?: CollectionRun[] };
+        const research = (await researchResponse.json()) as ResearchQuestions;
+        const sourceCoverage = (await coverageResponse.json()) as SourceCoverage;
         if (health.database !== "connected") throw new Error("Database unavailable");
 
         setSystem({
@@ -114,6 +150,8 @@ function App() {
           runs: (runs.data ?? []).filter((run) => run.status === "completed").slice(0, 4),
           bySource: stats.bySource ?? [],
           byFailureStage: stats.byFailureStage ?? [],
+          research,
+          sourceCoverage,
         });
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -159,8 +197,8 @@ function App() {
               vague-memory photo retrieval—not another generic sentiment dashboard.
             </p>
             <div className="hero-actions">
-              <a className="button button-primary" href="#explorer">Explore real evidence</a>
-              <span className="build-label">Stage 3 · Live source collection and AI coding</span>
+              <a className="button button-primary" href="#research-questions">Explore the four research questions</a>
+              <span className="build-label">Live source collection and evidence coding</span>
             </div>
           </div>
 
@@ -177,6 +215,42 @@ function App() {
           </div>
         </section>
 
+        {system.kind === "online" && (
+          <section className="research-questions" id="research-questions">
+            <div className="section-heading">
+              <p className="eyebrow">Question-led findings</p>
+              <h2>The four questions are answered from coded episodes, with uncertainty visible.</h2>
+              <p>
+                {system.research.coverage.codedEpisodes} coded of {system.research.coverage.admittedEpisodes} admitted episodes · {system.research.coverage.humanVerifiedEpisodes} human verified · {system.research.coverage.sourceKinds.length} {system.research.coverage.sourceKinds.length === 1 ? "source type" : "source types"}. Counts describe this selected corpus, not all Google Photos users.
+              </p>
+              {system.research.coverage.truncated && <p>Only the first 1,000 admitted episodes are included in these findings; refine the corpus before interpreting counts.</p>}
+            </div>
+            <div className="question-grid">
+              {system.research.questions.map((finding, index) => (
+                <article className="question-card" key={finding.id}>
+                  <div className="question-topline"><span>QUESTION {index + 1}</span><span>{finding.evidenceState === "not_observed" ? "Not observed" : finding.evidenceState === "early_directional" ? "Early, directional" : "Multi-source, directional"}</span></div>
+                  <h3>{finding.question}</h3>
+                  <p className="question-count">{finding.observedEpisodes} of {system.research.coverage.codedEpisodes} coded episodes contain an explicit signal</p>
+                  {finding.patterns.length > 0 ? (
+                    <div className="pattern-list">
+                      {finding.patterns.slice(0, 5).map((pattern) => (
+                        <details key={pattern.code}>
+                          <summary><span>{friendlyLabel(pattern.code)}</span><strong>{pattern.episodes} {pattern.episodes === 1 ? "episode" : "episodes"}</strong></summary>
+                          {pattern.examples.map((example) => (
+                            <p key={example.id}>“{example.source_text}” <a href={example.canonical_url} target="_blank" rel="noreferrer">Source ↗</a></p>
+                          ))}
+                        </details>
+                      ))}
+                    </div>
+                  ) : <p className="question-unknown">{finding.id === "forgotten" ? "The current admitted posts do not explicitly state a memory gap. An unstated detail is not treated as forgotten." : "The current admitted posts do not establish a specific pattern for this question."}</p>}
+                  {finding.id === "searches" && <p className="exact-query-note">Exact user-reported queries: {finding.reportedExactQueries?.length ? finding.reportedExactQueries.map((item) => `“${item.query}”`).join(", ") : "none in the current corpus"}.</p>}
+                  <p className="question-caveat">{finding.caveat}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
+
         <section className="principle-strip" aria-label="Research principles">
           <div><strong>Evidence first</strong><span>Every finding traces back to a public source.</span></div>
           <div><strong>Beyond sentiment</strong><span>We code memory, behavior, failure, and workaround.</span></div>
@@ -191,10 +265,10 @@ function App() {
           </div>
 
           <div className="metric-grid" aria-live="polite">
-            <article className="metric-card"><span>Public sources</span><strong>{corpus.source_count}</strong><small>Traceable URLs admitted</small></article>
-            <article className="metric-card"><span>Raw conversations</span><strong>{corpus.document_count}</strong><small>Original language preserved</small></article>
+            <article className="metric-card"><span>Admitted source URLs</span><strong>{corpus.source_count}</strong><small>One public link per episode</small></article>
+            <article className="metric-card"><span>Admitted conversations</span><strong>{corpus.document_count}</strong><small>Original language preserved</small></article>
             <article className="metric-card"><span>Evidence units</span><strong>{corpus.evidence_count}</strong><small>Structured retrieval episodes</small></article>
-            <article className="metric-card"><span>Human verified</span><strong>{corpus.verified_count}</strong><small>Extraction quality audited</small></article>
+            <article className="metric-card"><span>Human verified</span><strong>{corpus.verified_count}</strong><small>Coding reviewed against source</small></article>
           </div>
 
           <div className="integrity-note">
@@ -207,6 +281,26 @@ function App() {
             </div>
           </div>
         </section>
+
+        {system.kind === "online" && (
+          <section className="coverage-section" id="source-coverage">
+            <div className="section-heading">
+              <p className="eyebrow">Source coverage</p>
+              <h2>Seven requested source families; collection and admitted evidence are different.</h2>
+              <p>Attempted means a collector has run, not that it produced relevant evidence. Missing platforms remain visible.</p>
+            </div>
+            <div className="coverage-list">
+              {system.sourceCoverage.sources.map((source) => (
+                <div className="coverage-row" key={source.sourceKind}>
+                  <strong>{friendlyLabel(source.sourceKind)}</strong>
+                  <span>{source.status === "attempted" ? `${source.runCount} runs` : "Not connected"}</span>
+                  <span>{source.admittedEpisodes} admitted {source.admittedEpisodes === 1 ? "episode" : "episodes"}</span>
+                </div>
+              ))}
+            </div>
+            <p className="coverage-note">{system.sourceCoverage.note} Public discussion volume is not a population estimate.</p>
+          </section>
+        )}
 
         <section className="explorer" id="explorer">
           <div className="section-heading">
@@ -240,7 +334,7 @@ function App() {
                       <details className="audit-detail">
                         <summary>Why this evidence was retained</summary>
                         <p>{item.audit_notes}</p>
-                        <small>AI extraction confidence before review: {Math.round(item.extraction_confidence * 100)}% · Audit: {friendlyLabel(item.audit_verdict ?? "unknown")}</small>
+                        <small>{item.model_name === "human_source_coding" ? "Human-coded after no valid model output" : `AI extraction confidence before review: ${Math.round(item.extraction_confidence * 100)}%`} · Audit: {friendlyLabel(item.audit_verdict ?? "unknown")}</small>
                       </details>
                     )}
                   </article>

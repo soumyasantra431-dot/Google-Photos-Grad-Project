@@ -52,6 +52,8 @@ Public APIs and auditable imports
   extracts original posts or explicitly selected replies, skips unknown page formats, and submits a bounded batch. Its
   HTML parser is source-specific and must be monitored for changes; it is not a general forum API.
 - **D1** is the system of record for documents, evidence units, classifications, and audits.
+- **Review queue** preserves screened Community candidates and AI rejection reasons so a human can
+  recover relevant cases without lowering the global confidence threshold.
 - **Groq** classifies and synthesizes; it does not invent or calculate dashboard totals.
 - **Worker API** validates requests and queries bound Cloudflare services.
 - **React interface** presents evidence, coverage, uncertainty, and opportunity comparisons.
@@ -89,8 +91,13 @@ Public APIs and auditable imports
   audit excluded 4 generic search complaints and corrected the one specific re-finding episode.
 - A reply-focused run captured two specific user replies. The first pass exposed a false-positive
   deletion keyword filter; after a regression-tested correction, both were retained and audited.
-- The current admitted corpus contains three human-reviewed Google Photos Community episodes.
-  This is a purposive, small qualitative sample, not a prevalence estimate or opportunity ranking.
+- The first admitted corpus contained three human-reviewed Google Photos Community episodes.
+  Two more source-reviewed replies were subsequently admitted: a name-search/face-indexing episode
+  and an explicitly forgotten-date/map-browsing request. This is a purposive, small qualitative
+  sample from one source family, not a prevalence estimate or opportunity ranking.
+- Four deterministic question views separate photo target types, remembered clue types, explicitly
+  forgotten context, and attempted or requested search methods. Unstated details are not coded as
+  forgotten; exact typed queries are reported only when the user's words are available.
 
 ## Deferred
 

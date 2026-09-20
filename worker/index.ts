@@ -1,4 +1,5 @@
 import { collectYouTubeEvidence, ingestAppStoreEvidence, ingestGoogleSupportEvidence, timingSafeSecretMatch } from "./collection";
+import { buildResearchQuestions, type ResearchRow } from "./research";
 
 type EvidenceFilters = {
   limit: number;
@@ -131,6 +132,7 @@ async function listEvidence(db: D1Database, filters: EvidenceFilters): Promise<R
       e.id, e.retrieval_target, e.evidence_excerpt, e.remembered_clues_json,
       e.forgotten_context_json, e.search_attempt, e.failure_stage, e.workaround,
       e.retrieval_outcome, e.extraction_confidence, e.is_human_verified,
+      e.model_name,
       (SELECT a.verdict FROM human_audits a WHERE a.evidence_id = e.id ORDER BY a.audited_at DESC LIMIT 1) AS audit_verdict,
       (SELECT a.notes FROM human_audits a WHERE a.evidence_id = e.id ORDER BY a.audited_at DESC LIMIT 1) AS audit_notes,
       s.source_kind, s.platform, s.canonical_url, s.published_at, s.is_simulated
@@ -175,6 +177,75 @@ async function listCollectionRuns(db: D1Database): Promise<Response> {
   return jsonResponse({ data: result.results, count: result.results.length });
 }
 
+async function getResearchQuestions(db: D1Database): Promise<Response> {
+  const [countResult, evidenceResult] = await db.batch([
+    db.prepare(`
+      SELECT COUNT(*) AS total FROM evidence_units e
+      JOIN raw_documents d ON d.id = e.document_id
+      JOIN sources s ON s.id = d.source_id
+      WHERE s.include_in_findings = 1 AND s.is_simulated = 0
+    `),
+    db.prepare(`
+      SELECT e.id, e.evidence_excerpt, d.body AS source_text, e.target_types_json, e.remembered_clue_types_json,
+        e.explicitly_forgotten_json, e.search_methods_json, e.exact_queries_json,
+        e.coding_status, e.is_human_verified, s.canonical_url, s.source_kind
+      FROM evidence_units e
+      JOIN raw_documents d ON d.id = e.document_id
+      JOIN sources s ON s.id = d.source_id
+      WHERE s.include_in_findings = 1 AND s.is_simulated = 0
+      ORDER BY e.is_human_verified DESC, e.extracted_at DESC
+      LIMIT 1000
+    `),
+  ]);
+  const total = (countResult.results[0] as { total?: number } | undefined)?.total ?? 0;
+  return jsonResponse(buildResearchQuestions(evidenceResult.results as ResearchRow[], total));
+}
+
+async function getSourceCoverage(db: D1Database): Promise<Response> {
+  const [runs, admitted] = await db.batch([
+    db.prepare(`
+      SELECT source_kind, COUNT(*) AS run_count,
+        SUM(records_seen) AS records_processed_across_runs,
+        SUM(records_stored) AS initially_retained_across_runs,
+        MAX(completed_at) AS latest_run_at
+      FROM collection_runs GROUP BY source_kind
+    `),
+    db.prepare(`
+      SELECT s.source_kind, COUNT(DISTINCT e.id) AS admitted_episodes
+      FROM sources s JOIN raw_documents d ON d.source_id = s.id
+      JOIN evidence_units e ON e.document_id = d.id
+      WHERE s.include_in_findings = 1 AND s.is_simulated = 0
+      GROUP BY s.source_kind
+    `),
+  ]);
+  const runRows = runs.results as Array<{
+    source_kind: string;
+    run_count: number;
+    records_processed_across_runs: number;
+    initially_retained_across_runs: number;
+    latest_run_at: string | null;
+  }>;
+  const admittedRows = admitted.results as Array<{ source_kind: string; admitted_episodes: number }>;
+  const runByKind = new Map(runRows.map((row) => [row.source_kind, row]));
+  const admittedByKind = new Map(admittedRows.map((row) => [row.source_kind, row.admitted_episodes]));
+  const kinds = ["google_support", "youtube", "app_store", "google_play", "reddit", "social", "forum"];
+  return jsonResponse({
+    sources: kinds.map((sourceKind) => {
+      const run = runByKind.get(sourceKind);
+      return {
+        sourceKind,
+        status: run ? "attempted" : "not_connected",
+        runCount: Number(run?.run_count ?? 0),
+        recordsProcessedAcrossRuns: Number(run?.records_processed_across_runs ?? 0),
+        initiallyRetainedAcrossRuns: Number(run?.initially_retained_across_runs ?? 0),
+        admittedEpisodes: admittedByKind.get(sourceKind) ?? 0,
+        latestRunAt: run?.latest_run_at ?? null,
+      };
+    }),
+    note: "Processed and initially retained counts sum all collection runs and include repeat scans. Admitted episodes are deduplicated current records.",
+  });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -193,6 +264,14 @@ export default {
 
       if (request.method === "GET" && url.pathname === "/api/stats") {
         return await getStats(env.DB);
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/research-questions") {
+        return await getResearchQuestions(env.DB);
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/source-coverage") {
+        return await getSourceCoverage(env.DB);
       }
 
       if (request.method === "GET" && url.pathname === "/api/collection-runs") {
