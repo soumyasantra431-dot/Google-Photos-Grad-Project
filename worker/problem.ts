@@ -33,6 +33,6 @@ export function buildProblemDefinition(rows: OpportunityRow[], totalAdmitted: nu
       "Does a guided second attempt improve success, or merely add more search effort?",
       "How does the failure differ for people who have Ask Photos versus classic search?",
     ],
-    caveat: "This is a product focus to validate, not a market-sized conclusion. It is based on selected public stories from two source types and still needs real retrieval-task research.",
+    caveat: `This is a product focus to validate, not a market-sized conclusion. It is based on selected public stories from ${sourceKinds.length} ${sourceKinds.length === 1 ? "source type" : "source types"} and still needs real retrieval-task research.`,
   };
 }

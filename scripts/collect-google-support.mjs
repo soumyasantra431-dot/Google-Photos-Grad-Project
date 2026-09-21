@@ -27,6 +27,10 @@ const discoveredThreadIds = discoveredSeeds.thread_ids.filter((id) => /^\d{1,12}
 const batch2Only = process.argv.includes("--batch2-only");
 const batch2Seeds = JSON.parse(await readFile(new URL("../research/source-seeds/google-support-2026-09-20-batch2.json", import.meta.url), "utf8"));
 const batch2ThreadIds = batch2Seeds.thread_ids.filter((id) => /^\d{1,12}$/.test(id));
+const batch3Only = process.argv.includes("--batch3-only");
+const batch3Seeds = JSON.parse(await readFile(new URL("../research/source-seeds/google-support-2026-09-21-batch3.json", import.meta.url), "utf8"));
+const batch3ThreadIds = batch3Seeds.thread_ids.filter((id) => /^\d{1,12}$/.test(id));
+if (batch2Only && batch3Only) throw new Error("Choose only one of --batch2-only or --batch3-only");
 
 const endpoint = process.env.DISCOVERY_URL ?? "https://google-photos-grad-project.soumyasantra431.workers.dev";
 const triggerToken = process.env.COLLECTION_TRIGGER_TOKEN;
@@ -97,9 +101,14 @@ function extractReply(html, threadId, messageId) {
 
 const posts = [];
 const failures = [];
+const selectedOriginalThreadIds = batch3Only
+  ? batch3ThreadIds
+  : batch2Only
+    ? batch2ThreadIds
+    : [...new Set([...threadIds, ...discoveredThreadIds])];
 const targets = [
-  ...(!repliesOnly ? (batch2Only ? batch2ThreadIds : [...new Set([...threadIds, ...discoveredThreadIds])]).map((threadId) => ({ threadId })) : []),
-  ...(!batch2Only ? replySeeds : []),
+  ...(!repliesOnly ? selectedOriginalThreadIds.map((threadId) => ({ threadId })) : []),
+  ...(!batch2Only && !batch3Only ? replySeeds : []),
 ];
 for (const { threadId, messageId } of targets) {
   try {

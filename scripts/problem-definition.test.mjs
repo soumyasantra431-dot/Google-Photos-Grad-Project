@@ -25,6 +25,7 @@ test("builds a provisional focus from clue-interpretation evidence", () => {
   assert.deepEqual(result.evidence.sourceKinds.sort(), ["google_support", "reddit"]);
   assert.equal(result.evidence.workaroundStories, 1);
   assert.match(result.caveat, /not a market-sized conclusion/i);
+  assert.match(result.caveat, /2 source types/i);
 });
 
 test("keeps an empty focus transparent", () => {

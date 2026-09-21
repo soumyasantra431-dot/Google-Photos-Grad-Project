@@ -858,7 +858,16 @@ async function storeCuratedExtraction(
   if (reviewed?.is_human_verified === 1) return "already_human_reviewed";
   const now = new Date().toISOString();
   const contentHash = await sha256Hex(`${post.sourceKind}:${post.externalId}:${post.body}`);
-  const platform = post.sourceKind === "reddit" ? "Reddit" : post.sourceKind === "forum" ? "Public forum" : "Public social post";
+  const hostname = new URL(post.canonicalUrl).hostname.toLocaleLowerCase();
+  const platform = post.sourceKind === "reddit"
+    ? "Reddit"
+    : post.sourceKind === "social"
+      ? "Public social post"
+      : hostname === "webapps.stackexchange.com"
+        ? "Web Applications Stack Exchange"
+        : hostname === "discussions.apple.com"
+          ? "Apple Support Community"
+          : "Public forum";
   await executeInChunks(db, [
     db.prepare(`
       INSERT INTO sources (
@@ -866,7 +875,7 @@ async function storeCuratedExtraction(
         collected_at, language, is_simulated, include_in_findings, metadata_json
       ) VALUES (?, ?, ?, ?, NULL, ?, ?, 'en', 0, 1, ?)
       ON CONFLICT(id) DO UPDATE SET
-        published_at = excluded.published_at, collected_at = excluded.collected_at,
+        platform = excluded.platform, published_at = excluded.published_at, collected_at = excluded.collected_at,
         metadata_json = excluded.metadata_json
     `).bind(sourceId, post.sourceKind, platform, post.canonicalUrl, post.publishedAt, now,
       JSON.stringify({ curationMethod: "public_search_verified_excerpt", externalId: post.externalId })),

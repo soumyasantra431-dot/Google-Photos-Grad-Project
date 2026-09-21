@@ -74,7 +74,7 @@ Optional filters are `failureStage`, `sourceKind`, and `limit` (1-50).
 - `pnpm.cmd run collect:google-support -- --dry-run` checks a bounded list of public thread pages
   without writing data. `pnpm.cmd run collect:google-support` sends original posts and selected
   user replies to the same protected evidence pipeline; `--replies-only` limits a run to replies,
-  and `--batch2-only` or `--start-batch=N` can resume the source-seed batches. Seed URLs are in
+  and `--batch2-only`, `--batch3-only`, or `--start-batch=N` can resume the source-seed batches. Seed URLs are in
   `research/source-seeds/`. A page that changes format is skipped, not guessed.
 - `pnpm.cmd run ingest:curated research/source-seeds/curated-reddit-2026-09-20.json` submits a small
   manually verified set of public, source-linked excerpts (at most 25 words each) through the
@@ -90,7 +90,8 @@ Optional filters are `failureStage`, `sourceKind`, and `limit` (1-50).
 
 ## Known gaps
 
-Google Play, social, and general forum collection are not yet connected. Public App Store review
+Google Play and social collection are not yet connected. Forum coverage is a small, researcher-curated
+set of Google-Photos-specific public discussions, not a general forum firehose. Public App Store review
 volume should not be mistaken for relevant retrieval episodes. Public complaints are self-selected
 and cannot establish how common a failure is. More target-specific source discovery and 5–6 real
 interviews are still needed before choosing and validating a product opportunity; simulated

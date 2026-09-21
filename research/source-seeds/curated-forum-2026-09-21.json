@@ -1,0 +1,18 @@
+[
+  {
+    "sourceKind": "forum",
+    "externalId": "webapps-137341-map-no-date",
+    "canonicalUrl": "https://webapps.stackexchange.com/questions/137341/how-to-show-all-my-private-google-photos-on-a-map",
+    "title": "Remembering the place but not the time",
+    "body": "Sometimes I remember places but not the time when I have taken a photo.",
+    "publishedAt": "2019-12-23"
+  },
+  {
+    "sourceKind": "forum",
+    "externalId": "webapps-173342-cabin-map",
+    "canonicalUrl": "https://webapps.stackexchange.com/questions/173342/showing-pictures-on-a-map-based-on-the-location-they-were-taken-in-the-google-ph",
+    "title": "Finding a cabin photo when no location name exists",
+    "body": "Find a picture taken at my cabin which is in the middle of nowhere and therefore Google doesn't automatically create a location name for it.",
+    "publishedAt": "2023-12-27"
+  }
+]

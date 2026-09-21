@@ -1,4 +1,5 @@
 const GROQ_MODEL = "openai/gpt-oss-20b";
+const DETERMINISTIC_MODEL = "deterministic-evidence-v1";
 const ANALYSIS_VERSION = "v2";
 
 export const ANALYSIS_TEMPLATES = {
@@ -12,7 +13,7 @@ export const ANALYSIS_TEMPLATES = {
   },
   forgotten_context: {
     label: "What information have people actually forgotten?",
-    instruction: "Identify only details users explicitly said they forgot or could not recall. In the current fixed counts, date is the only explicitly forgotten detail and appears in 2 stories; state plainly that no other forgotten-detail pattern is observed. Do not convert an unmentioned detail—or a detail the user remembers, such as location—into a forgotten detail.",
+    instruction: "Identify only details users explicitly said they forgot or could not recall. Treat the supplied deterministic counts as current. State plainly when no other forgotten-detail pattern is observed. Do not convert an unmentioned detail—or a detail the user remembers, such as location—into a forgotten detail.",
   },
   search_language: {
     label: "How do people search with incomplete memory?",
@@ -24,7 +25,7 @@ export const ANALYSIS_TEMPLATES = {
   },
   choose_opportunity: {
     label: "Which opportunity should we validate first?",
-    instruction: "Recommend one retrieval problem for primary-research validation. Use evidence breadth, unresolved outcomes, workarounds, and closeness to the target product outcome. Explain why the 8-story clue-interpretation signal is or is not a better first validation target than the 4-story library-access signal. Do not claim product-market prevalence or make a final solution decision.",
+    instruction: "Recommend one retrieval problem for primary-research validation. Use the supplied current counts, evidence breadth, unresolved outcomes, workarounds, and closeness to the target product outcome. Compare the leading mechanism with the next-best alternative. Do not claim product-market prevalence or make a final solution decision.",
   },
 } as const;
 
@@ -147,6 +148,123 @@ function deterministicSummary(rows: AnalysisRow[]) {
   };
 }
 
+const codeLabels: Record<string, string> = {
+  people: "people", outdoor_place: "places", indoor_place: "indoor places", object: "objects",
+  animal: "animals", document: "documents", screenshot: "screenshots", event: "events",
+  person: "people", place: "places", appearance: "appearance", approximate_time: "rough time",
+  text: "visible text", memory_surface: "where it resurfaced", library_state: "where it lives",
+  date: "date", album: "album", filename: "filename", search_words: "search words",
+  typed_query: "typed queries", timeline_browse: "timeline browsing", album_browse: "album browsing",
+  folder_browse: "folder browsing", visual_scan: "visual scanning", reference_image_request: "reference-image requests",
+  map_browse_request: "map browsing", clue_expression: "using a remembered clue",
+  clue_interpretation: "search understanding the clue", result_evaluation: "spotting the right result",
+  search_refinement: "recovering after a bad result", library_access: "reaching the photo again",
+};
+
+function formatCounts(counts: Record<string, number>, limit = 4): string {
+  return Object.entries(counts)
+    .filter(([code, count]) => code !== "unknown" && count > 0)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([code, count]) => `${codeLabels[code] ?? code.replaceAll("_", " ")} (${count})`)
+    .join(", ");
+}
+
+function citedIds(rows: AnalysisRow[], predicate: (row: AnalysisRow) => boolean): string[] {
+  const matches = rows.filter(predicate).slice(0, 4).map((row) => row.id);
+  return matches.length ? matches : rows.slice(0, 4).map((row) => row.id);
+}
+
+export function buildDeterministicAnalysis(templateId: AnalysisTemplateId, rows: AnalysisRow[]): GeneratedAnalysis {
+  if (rows.length === 0) throw new Error("No included evidence is available for analysis");
+  const summary = deterministicSummary(rows);
+  const caveat = "This is a directional reading of selected public stories, not a measure of prevalence among all Google Photos users.";
+  if (templateId === "photo_types") {
+    const top = formatCounts(summary.targetTypeCounts) || "no repeated photo type";
+    return {
+      answer: `The ${rows.length} included stories span several retrieval targets rather than one single photo category. The most repeated coded types are ${top}.`,
+      insights: [{
+        label: "Retrieval targets vary",
+        finding: `The coded target mix is ${top}. One story may carry more than one type, so these counts should not be added into a prevalence estimate.`,
+        evidenceIds: citedIds(rows, (row) => parseStringArray(row.target_types_json).some((code) => code !== "unknown")),
+        implication: "Design for partial clues across target types instead of optimizing only for one content category.",
+      }], caveat,
+    };
+  }
+  if (templateId === "remembered_clues") {
+    const top = formatCounts(summary.rememberedClueCounts);
+    return {
+      answer: `People retain usable fragments of the photo: ${top}. The clue often describes content or context even when a date is unavailable.`,
+      insights: [{
+        label: "Memory is partial, not empty",
+        finding: `Across the included stories, the most repeated coded memory clues are ${top}.`,
+        evidenceIds: citedIds(rows, (row) => parseStringArray(row.remembered_clue_types_json).length > 0),
+        implication: "The product should accept the clue a person still has and show how it narrowed the candidates.",
+      }], caveat,
+    };
+  }
+  if (templateId === "forgotten_context") {
+    const forgotten = formatCounts(summary.explicitlyForgottenCounts);
+    const forgottenRows = rows.filter((row) => parseStringArray(row.explicitly_forgotten_json).length > 0);
+    return {
+      answer: forgotten
+        ? `Only explicitly stated forgetting is counted. In this corpus the observed forgotten detail is ${forgotten}; unmentioned date, place, album, or filename is kept as unknown.`
+        : "No repeated forgotten detail is explicitly stated in the included stories. Unmentioned context remains unknown rather than being labelled forgotten.",
+      insights: [{
+        label: "Unknown is not forgotten",
+        finding: forgotten
+          ? `${forgottenRows.length} included stories explicitly name something forgotten: ${forgotten}. Other absent details are not inferred.`
+          : "The evidence does not support a repeated explicitly forgotten detail.",
+        evidenceIds: citedIds(rows, (row) => parseStringArray(row.explicitly_forgotten_json).length > 0),
+        implication: "Ask for missing context only when useful; do not assume what the user has forgotten.",
+      }], caveat,
+    };
+  }
+  if (templateId === "search_language") {
+    const methods = formatCounts(summary.searchMethodCounts);
+    const exactRows = rows.filter((row) => parseStringArray(row.exact_queries_json).length > 0);
+    return {
+      answer: `People combine typed words with browsing and visual strategies. The coded methods are ${methods}; exact query words are preserved only when the user reports them.`,
+      insights: [
+        {
+          label: "Search is more than a text box",
+          finding: `The included stories use or request ${methods}.`,
+          evidenceIds: citedIds(rows, (row) => parseStringArray(row.search_methods_json).length > 0),
+          implication: "Evaluate retrieval across query, browse, map, and reference-image behaviors.",
+        },
+        {
+          label: "Exact wording is scarce but valuable",
+          finding: `${summary.reportedExactQueryCount} exact reported query phrases are preserved. Paraphrased researcher summaries are kept separate.`,
+          evidenceIds: exactRows.length ? exactRows.slice(0, 4).map((row) => row.id) : rows.slice(0, 4).map((row) => row.id),
+          implication: "Use verbatim query language to test whether search understands real clue combinations.",
+        },
+      ], caveat,
+    };
+  }
+  const mechanismText = formatCounts(summary.mechanismCounts, 5);
+  const topMechanism = Object.entries(summary.mechanismCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "clue_interpretation";
+  if (templateId === "compare_breakdowns") {
+    return {
+      answer: `The five breakdowns are distinct product problems. In this evidence set their coded counts are ${mechanismText}.`,
+      insights: [{
+        label: "Do not collapse the journey into search quality",
+        finding: `The strongest current signal is ${codeLabels[topMechanism] ?? topMechanism}, but the corpus also contains failures before, within, and after results.`,
+        evidenceIds: citedIds(rows, (row) => row.problem_mechanism === topMechanism),
+        implication: "Choose metrics and interventions for the specific broken step.",
+      }], caveat,
+    };
+  }
+  return {
+    answer: `Validate ${codeLabels[topMechanism] ?? topMechanism} first because it has the strongest current evidence signal, while treating that choice as a research hypothesis rather than a final product decision.`,
+    insights: [{
+      label: "Strongest evidence, still provisional",
+      finding: `The mechanism counts are ${mechanismText}. The leading signal should be tested with real retrieval tasks before solution selection.`,
+      evidenceIds: citedIds(rows, (row) => row.problem_mechanism === topMechanism),
+      implication: "Use interviews and prototype tasks to test cause, value, and whether the wanted photo becomes easier to retrieve.",
+    }], caveat,
+  };
+}
+
 function promptRows(rows: AnalysisRow[]) {
   return rows.map((row) => ({
     id: row.id,
@@ -260,14 +378,23 @@ export async function getGroundedAnalysis(db: D1Database, apiKey: string, templa
   let analysis: GeneratedAnalysis;
   let generatedAt: string;
   let cacheStatus: "hit" | "generated";
+  let modelName: string;
   if (cached) {
     const parsed = safeGeneratedAnalysis(JSON.parse(cached.response_json), new Set(rows.map((row) => row.id)));
     if (!parsed) throw new Error("Cached analysis contains invalid citations");
     analysis = parsed;
     generatedAt = cached.generated_at;
     cacheStatus = "hit";
+    modelName = cached.model_name;
   } else {
-    analysis = await generateAnalysis(apiKey, templateId, rows);
+    try {
+      analysis = await generateAnalysis(apiKey, templateId, rows);
+      modelName = GROQ_MODEL;
+    } catch (error) {
+      console.warn(JSON.stringify({ event: "grounded_analysis_fallback", templateId, error: String(error).slice(0, 300) }));
+      analysis = buildDeterministicAnalysis(templateId, rows);
+      modelName = DETERMINISTIC_MODEL;
+    }
     generatedAt = new Date().toISOString();
     cacheStatus = "generated";
     await db.prepare(`
@@ -277,7 +404,7 @@ export async function getGroundedAnalysis(db: D1Database, apiKey: string, templa
         response_json = excluded.response_json,
         model_name = excluded.model_name,
         generated_at = excluded.generated_at
-    `).bind(templateId, signature, JSON.stringify(analysis), GROQ_MODEL, generatedAt).run();
+    `).bind(templateId, signature, JSON.stringify(analysis), modelName, generatedAt).run();
   }
 
   const citedIds = [...new Set(analysis.insights.flatMap((insight) => insight.evidenceIds))];
@@ -290,7 +417,8 @@ export async function getGroundedAnalysis(db: D1Database, apiKey: string, templa
       return row ? [{ id, sourceText: row.source_text, sourceKind: row.source_kind, canonicalUrl: row.canonical_url }] : [];
     }),
     provenance: {
-      model: GROQ_MODEL,
+      model: modelName,
+      synthesisMode: modelName === GROQ_MODEL ? "groq" : "deterministic_fallback",
       includedStories: rows.length,
       generatedAt,
       cacheStatus,
