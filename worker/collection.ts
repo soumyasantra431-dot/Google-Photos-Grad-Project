@@ -845,7 +845,12 @@ async function storeCuratedExtraction(
   if (!extraction.retrieval_target || !extraction.evidence_excerpt) return "missing_target_or_quote";
   if (!post.body.toLocaleLowerCase().includes(extraction.evidence_excerpt.toLocaleLowerCase())) return "quote_not_verbatim";
   const identityHash = await sha256Hex(`curated:${post.sourceKind}:${post.externalId}`);
-  const sourceId = `src_${identityHash.slice(0, 24)}`;
+  // Several useful comments can come from the same public discussion. Reuse the
+  // URL-level source record while keeping one document/evidence record per post.
+  const existingSource = await db.prepare("SELECT id FROM sources WHERE canonical_url = ?")
+    .bind(post.canonicalUrl).first<{ id: string }>();
+  const sourceHash = await sha256Hex(`curated-source:${post.sourceKind}:${post.canonicalUrl}`);
+  const sourceId = existingSource?.id ?? `src_${sourceHash.slice(0, 24)}`;
   const documentId = `doc_${identityHash.slice(0, 24)}`;
   const evidenceId = `ev_${identityHash.slice(0, 24)}`;
   const reviewed = await db.prepare("SELECT is_human_verified FROM evidence_units WHERE id = ?")

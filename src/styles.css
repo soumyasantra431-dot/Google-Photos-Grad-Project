@@ -187,6 +187,17 @@ h1 {
   background: #eef4fe;
 }
 
+.text-link {
+  color: #1a73e8;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.text-link:hover {
+  text-decoration: underline;
+}
+
 .build-label {
   color: #5f6368;
   font-size: 14px;
@@ -520,6 +531,135 @@ blockquote {
   padding-top: 16px;
   color: #80868b;
   font-size: 12px;
+  line-height: 1.5;
+}
+
+.diagnostic-note summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.diagnostic-note p {
+  margin: 8px 0 0;
+}
+
+.problem-section {
+  padding: 96px 0;
+}
+
+.problem-statement {
+  max-width: 980px;
+  margin: 32px 0 18px;
+  padding: 28px;
+  border-left: 5px solid #1a73e8;
+  border-radius: 0 18px 18px 0;
+  background: #eef4fe;
+}
+
+.problem-statement span,
+.problem-grid span,
+.problem-outcome span {
+  display: block;
+  margin-bottom: 8px;
+  color: #5f6368;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.problem-statement p {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.problem-evidence-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 18px;
+  border: 1px solid #e2e7ef;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.problem-evidence-strip div {
+  display: grid;
+  gap: 4px;
+  padding: 20px;
+}
+
+.problem-evidence-strip div + div {
+  border-left: 1px solid #e2e7ef;
+}
+
+.problem-evidence-strip strong {
+  font-size: 24px;
+}
+
+.problem-evidence-strip span {
+  color: #5f6368;
+  font-size: 12px;
+}
+
+.problem-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.problem-grid article {
+  padding: 24px;
+  border: 1px solid #e2e7ef;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.problem-grid p {
+  margin: 0;
+  color: #3c4043;
+  line-height: 1.65;
+}
+
+.problem-outcome {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.problem-outcome div {
+  padding: 24px;
+  border-radius: 16px;
+  background: #202124;
+  color: #fff;
+}
+
+.problem-outcome span {
+  color: #bdc1c6;
+}
+
+.problem-outcome strong {
+  line-height: 1.5;
+}
+
+.open-questions {
+  margin-top: 18px;
+  padding: 20px 24px;
+  border: 1px solid #e2e7ef;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.open-questions summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.open-questions li {
+  margin: 10px 0;
+  color: #5f6368;
   line-height: 1.5;
 }
 
@@ -1072,6 +1212,7 @@ footer {
 
   .architecture,
   .opportunity-section,
+  .problem-section,
   .evidence-foundation,
   .coverage-section,
   .explorer,
@@ -1108,6 +1249,17 @@ footer {
   }
 
   .opportunity-counts div + div {
+    border-top: 1px solid #e2e7ef;
+    border-left: 0;
+  }
+
+  .problem-evidence-strip,
+  .problem-grid,
+  .problem-outcome {
+    grid-template-columns: 1fr;
+  }
+
+  .problem-evidence-strip div + div {
     border-top: 1px solid #e2e7ef;
     border-left: 0;
   }

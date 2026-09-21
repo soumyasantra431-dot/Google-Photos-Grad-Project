@@ -1,5 +1,6 @@
 import { collectYouTubeEvidence, ingestAppStoreEvidence, ingestCuratedPublicEvidence, ingestGoogleSupportEvidence, timingSafeSecretMatch } from "./collection";
 import { buildOpportunityMap, type OpportunityRow } from "./opportunity";
+import { buildProblemDefinition } from "./problem";
 import { buildResearchQuestions, type ResearchRow } from "./research";
 
 type EvidenceFilters = {
@@ -149,6 +150,52 @@ async function listEvidence(db: D1Database, filters: EvidenceFilters): Promise<R
   return jsonResponse({ data: result.results, count: result.results.length, filters });
 }
 
+function csvCell(value: unknown): string {
+  const text = value === null || value === undefined ? "" : String(value);
+  return `"${text.replaceAll('"', '""')}"`;
+}
+
+async function downloadEvidenceCsv(db: D1Database): Promise<Response> {
+  const result = await db.prepare(`
+    SELECT
+      s.platform, s.source_kind, s.published_at, s.canonical_url,
+      d.title, d.body AS source_text,
+      e.retrieval_target, e.evidence_excerpt, e.remembered_clues_json,
+      e.explicitly_forgotten_json, e.search_attempt, e.search_methods_json,
+      e.exact_queries_json, e.failure_stage, e.workaround, e.retrieval_outcome,
+      e.is_human_verified,
+      (SELECT a.notes FROM human_audits a WHERE a.evidence_id = e.id ORDER BY a.audited_at DESC LIMIT 1) AS audit_notes
+    FROM evidence_units e
+    JOIN raw_documents d ON d.id = e.document_id
+    JOIN sources s ON s.id = d.source_id
+    WHERE s.include_in_findings = 1 AND s.is_simulated = 0
+    ORDER BY COALESCE(s.published_at, s.collected_at) DESC, e.id ASC
+    LIMIT 1000
+  `).all<Record<string, unknown>>();
+  const headers = [
+    "platform", "source_type", "published_at", "source_url", "discussion_title",
+    "source_text", "wanted_photo", "evidence_excerpt", "remembered_details",
+    "explicitly_forgotten", "search_attempt", "search_methods", "exact_queries",
+    "where_retrieval_failed", "workaround", "outcome", "human_checked", "audit_notes",
+  ];
+  const keys = [
+    "platform", "source_kind", "published_at", "canonical_url", "title", "source_text",
+    "retrieval_target", "evidence_excerpt", "remembered_clues_json", "explicitly_forgotten_json",
+    "search_attempt", "search_methods_json", "exact_queries_json", "failure_stage", "workaround",
+    "retrieval_outcome", "is_human_verified", "audit_notes",
+  ];
+  const rows = result.results.map((row) => keys.map((key) => csvCell(row[key])).join(","));
+  const csv = `\uFEFF${headers.map(csvCell).join(",")}\r\n${rows.join("\r\n")}`;
+  return new Response(csv, {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": 'attachment; filename="photo-recall-evidence.csv"',
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+
 async function getEvidence(db: D1Database, id: string): Promise<Response> {
   const result = await db.prepare(`
     SELECT
@@ -227,6 +274,31 @@ async function getOpportunityMap(db: D1Database): Promise<Response> {
   return jsonResponse(buildOpportunityMap(opportunityResult.results as OpportunityRow[], total));
 }
 
+async function getProblemDefinition(db: D1Database): Promise<Response> {
+  const [countResult, evidenceResult] = await db.batch([
+    db.prepare(`
+      SELECT COUNT(*) AS total FROM evidence_units e
+      JOIN raw_documents d ON d.id = e.document_id
+      JOIN sources s ON s.id = d.source_id
+      WHERE s.include_in_findings = 1 AND s.is_simulated = 0
+    `),
+    db.prepare(`
+      SELECT e.id, o.problem_mechanism, o.rationale, e.retrieval_outcome,
+        e.workaround, e.is_human_verified, s.source_kind, d.body AS source_text,
+        s.canonical_url
+      FROM opportunity_codings o
+      JOIN evidence_units e ON e.id = o.evidence_id
+      JOIN raw_documents d ON d.id = e.document_id
+      JOIN sources s ON s.id = d.source_id
+      WHERE s.include_in_findings = 1 AND s.is_simulated = 0
+      ORDER BY o.coded_at DESC, e.id ASC
+      LIMIT 1000
+    `),
+  ]);
+  const total = (countResult.results[0] as { total?: number } | undefined)?.total ?? 0;
+  return jsonResponse(buildProblemDefinition(evidenceResult.results as OpportunityRow[], total));
+}
+
 async function getSourceCoverage(db: D1Database): Promise<Response> {
   const [runs, admitted, candidates] = await db.batch([
     db.prepare(`
@@ -277,7 +349,7 @@ async function getSourceCoverage(db: D1Database): Promise<Response> {
         latestRunAt: run?.latest_run_at ?? null,
       };
     }),
-    note: "Processed counts sum repeat scans. Unique candidates are retained public posts; model-screened is a subset, and admitted episodes are deduplicated evidence. Earlier YouTube runs did not archive rejected comments.",
+    note: "Processed totals can include repeat scans. Candidates are unique public items saved for review; included stories pass the stricter retrieval-evidence checks. Earlier YouTube runs did not save rejected comments.",
   });
 }
 
@@ -291,7 +363,7 @@ export default {
         return jsonResponse({
           status: "ok",
           service: "photo-recall-discovery-engine",
-          stage: "opportunity-comparison",
+          stage: "problem-definition",
           database: databaseCheck?.connected === 1 ? "connected" : "unavailable",
           checkedAt: new Date().toISOString(),
         });
@@ -307,6 +379,10 @@ export default {
 
       if (request.method === "GET" && url.pathname === "/api/opportunity-map") {
         return await getOpportunityMap(env.DB);
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/problem-definition") {
+        return await getProblemDefinition(env.DB);
       }
 
       if (request.method === "GET" && url.pathname === "/api/source-coverage") {
@@ -369,6 +445,10 @@ export default {
         const filters = parseEvidenceFilters(url);
         if (filters instanceof Response) return filters;
         return await listEvidence(env.DB, filters);
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/evidence.csv") {
+        return await downloadEvidenceCsv(env.DB);
       }
 
       if (request.method === "GET" && url.pathname.startsWith("/api/evidence/")) {

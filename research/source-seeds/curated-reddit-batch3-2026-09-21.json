@@ -1,0 +1,50 @@
+[
+  {
+    "sourceKind": "reddit",
+    "externalId": "1vcu3cs-op-full",
+    "canonicalUrl": "https://www.reddit.com/r/googlephotos/comments/1vcu3cs/finding_specific_photo_in_a_large_album/",
+    "title": "Finding a specific photo in a large album",
+    "body": "I have an Album in Google Photos that has more than 1400 pics in it. I don't know how to easily find ONE particular picture that is somewhere among 1400+ pictures. I did CtrlF when I opened the Album, but it shows 0 results, and that's even for something that I literally see in the Album that I've opened.",
+    "publishedAt": "2026-08-01"
+  },
+  {
+    "sourceKind": "reddit",
+    "externalId": "1fvq7hr-passport-op",
+    "canonicalUrl": "https://www.reddit.com/r/googlephotos/comments/1fvq7hr/why_did_they_ruin_google_photos_search/",
+    "title": "Passport and Global Entry Card searches return irrelevant photos",
+    "body": "Need a pic of passport? Just type \"Passport\". Forgot your Known Traveler Number? Search \"Global Entry Card\". Now I search any of the above and it shows me thousands of photos with absolutely no relevance.",
+    "publishedAt": "2024-10-04"
+  },
+  {
+    "sourceKind": "reddit",
+    "externalId": "11er7fc-missed-face-comment",
+    "canonicalUrl": "https://www.reddit.com/r/googlephotos/comments/11er7fc/when_google_photos_does_not_think_that_there_is_a/",
+    "title": "An unrecognized face makes a specific photo hard to find",
+    "body": "It drives me nuts to be looking for a specific photo of someone just to find they aren't tagged because it didn't recognize their very obvious face, from straight on, as a face.",
+    "publishedAt": "2023-03-01"
+  },
+  {
+    "sourceKind": "reddit",
+    "externalId": "1px47il-dog-bbq-comment",
+    "canonicalUrl": "https://www.reddit.com/r/googlephotos/comments/1px47il/googleif_youre_listening_your_photos_app_is_a/",
+    "title": "Object searches miss remembered photos",
+    "body": "I have a dog. I have hundreds of pictures of him. Search for \"dog\" or \"puppy\" before and it would bring back nearly all of them. Today? It brings back about 40 photos. I make BBQ quite often. Search for BBQ now and it barely returns anything. If I want to find a photo of something and show it to someone, I have to remember the date I took it and scroll back through the history and get the date right.",
+    "publishedAt": "2025-12-27"
+  },
+  {
+    "sourceKind": "reddit",
+    "externalId": "1uirwt9-op",
+    "canonicalUrl": "https://www.reddit.com/r/googlephotos/comments/1uirwt9/photos_missing_but_in_memory_reels/",
+    "title": "Photos appear in memory reels but cannot be found in the library",
+    "body": "I am missing all my photos from 2017 to 2019. Another strange thing is that I'll get random memory reels that Google makes and there will be photos I can't find in my Google gallery otherwise from around those years. Anyone have any clue what's going on or how I can get these photos and videos back?",
+    "publishedAt": "2026-06-29"
+  },
+  {
+    "sourceKind": "reddit",
+    "externalId": "xa1j13-op",
+    "canonicalUrl": "https://www.reddit.com/r/googlephotos/comments/xa1j13/is_there_a_way_to_know_if_a_photo_has_already/",
+    "title": "Finding the cloud copy of a local photo when filename differs",
+    "body": "I was hoping for a way to search Google Photos and see if a specific photo is already uploaded without using filename. The filename is different between my local version and the Google Photos version. How do I find this file in Google Photos so I can delete it and reupload the file with the more EXIF information?",
+    "publishedAt": "2022-09-09"
+  }
+]

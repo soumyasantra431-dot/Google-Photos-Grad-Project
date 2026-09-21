@@ -105,6 +105,9 @@ Public API, feed, page, and verified-excerpt imports
   evaluation, search refinement, and library access. Counts, source diversity, unresolved outcomes,
   workarounds, and human-review coverage are shown independently. “Most observed” is explicitly a
   selected-corpus signal, not a RICE score, prevalence estimate, or final opportunity decision.
+- The problem-definition view converts the leading observed mechanism into a provisional behavioral
+  segment, retrieval moment, root cause, outcome, and validation gaps. It is a focus to test, not a
+  market-sized conclusion or final solution decision.
 
 ## Deferred
 

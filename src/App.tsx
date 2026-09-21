@@ -97,6 +97,31 @@ type OpportunityMap = {
   }>;
 };
 
+type ProblemDefinition = {
+  status: "provisional_focus";
+  decision: string;
+  targetSegment: string;
+  retrievalScenario: string;
+  rootCause: string;
+  problemStatement: string;
+  currentWorkarounds: string[];
+  userValue: string;
+  businessValue: string;
+  productOutcome: string;
+  leadingMetric: string;
+  evidence: {
+    includedStories: number;
+    focusStories: number;
+    sourceKinds: string[];
+    unresolvedStories: number;
+    workaroundStories: number;
+    humanCheckedStories: number;
+    examples: Array<{ id: string; source_text: string; canonical_url: string; source_kind: string; rationale: string }>;
+  };
+  openQuestions: string[];
+  caveat: string;
+};
+
 type SystemState =
   | { kind: "loading" }
   | {
@@ -112,13 +137,14 @@ type SystemState =
       research: ResearchQuestions;
       sourceCoverage: SourceCoverage;
       opportunity: OpportunityMap;
+      problem: ProblemDefinition;
     }
   | { kind: "offline" };
 
 const stages = [
   { number: "01", title: "Collect evidence", description: "Bring public conversations into one traceable research corpus." },
   { number: "02", title: "Structure memory clues", description: "Separate what people remember, forget, try, and experience." },
-  { number: "03", title: "Compare breakdowns", description: "Find where expression, interpretation, evaluation, refinement, or library access fails." },
+  { number: "03", title: "Compare where people get stuck", description: "Compare failures in describing, searching, scanning, retrying, and reaching the photo." },
   { number: "04", title: "Prioritise an opportunity", description: "Connect evidence to a focused product outcome and validation plan." },
 ];
 
@@ -137,6 +163,28 @@ function friendlyLabel(value: string): string {
   return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+const breakdownLabels: Record<string, string> = {
+  clue_expression: "Clue cannot be entered",
+  clue_interpretation: "Search misunderstands the clue",
+  result_evaluation: "Right photo is hard to spot",
+  search_refinement: "No useful next step after a miss",
+  library_access: "Photo exists but is hard to reach",
+};
+
+const failureLabels: Record<string, string> = {
+  expression: "Could not use the remembered clue",
+  interpretation: "Search misunderstood the clue",
+  evaluation: "Could not spot the right result",
+  refinement: "Could not improve the failed search",
+  unknown: "Breakdown unclear",
+};
+
+function evidenceStrengthLabel(value: "not_observed" | "early_directional" | "multi_source_directional"): string {
+  if (value === "multi_source_directional") return "Repeated across source types";
+  if (value === "early_directional") return "Early signal";
+  return "No verified example yet";
+}
+
 function App() {
   const [system, setSystem] = useState<SystemState>({ kind: "loading" });
 
@@ -145,7 +193,7 @@ function App() {
 
     async function loadSystem() {
       try {
-        const [healthResponse, statsResponse, evidenceResponse, runsResponse, researchResponse, coverageResponse, opportunityResponse] = await Promise.all([
+        const [healthResponse, statsResponse, evidenceResponse, runsResponse, researchResponse, coverageResponse, opportunityResponse, problemResponse] = await Promise.all([
           fetch("/api/health", { signal: controller.signal }),
           fetch("/api/stats", { signal: controller.signal }),
           fetch("/api/evidence?limit=12", { signal: controller.signal }),
@@ -153,8 +201,9 @@ function App() {
           fetch("/api/research-questions", { signal: controller.signal }),
           fetch("/api/source-coverage", { signal: controller.signal }),
           fetch("/api/opportunity-map", { signal: controller.signal }),
+          fetch("/api/problem-definition", { signal: controller.signal }),
         ]);
-        if (![healthResponse, statsResponse, evidenceResponse, runsResponse, researchResponse, coverageResponse, opportunityResponse].every((response) => response.ok)) {
+        if (![healthResponse, statsResponse, evidenceResponse, runsResponse, researchResponse, coverageResponse, opportunityResponse, problemResponse].every((response) => response.ok)) {
           throw new Error("System check failed");
         }
 
@@ -171,6 +220,7 @@ function App() {
         const research = (await researchResponse.json()) as ResearchQuestions;
         const sourceCoverage = (await coverageResponse.json()) as SourceCoverage;
         const opportunity = (await opportunityResponse.json()) as OpportunityMap;
+        const problem = (await problemResponse.json()) as ProblemDefinition;
         if (health.database !== "connected") throw new Error("Database unavailable");
 
         setSystem({
@@ -186,6 +236,7 @@ function App() {
           research,
           sourceCoverage,
           opportunity,
+          problem,
         });
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -200,6 +251,9 @@ function App() {
   const corpus = system.kind === "online" ? system.corpus : emptyStats;
   const evidence = system.kind === "online" ? system.evidence : [];
   const runs = system.kind === "online" ? system.runs : [];
+  const screenedCandidates = system.kind === "online"
+    ? system.sourceCoverage.sources.reduce((total, source) => total + source.uniqueCandidates, 0)
+    : 0;
 
   return (
     <div className="app-shell">
@@ -227,13 +281,13 @@ function App() {
             <p className="eyebrow">AI-powered product discovery</p>
             <h1>Understand why remembered photos still feel impossible to find.</h1>
             <p className="hero-intro">
-              A research system for turning public conversations into traceable evidence about
-              vague-memory photo retrieval—not another generic sentiment dashboard.
+              See what people remember, what they try, where finding breaks, and the exact public
+              conversation behind every finding.
             </p>
             <div className="hero-actions">
               <a className="button button-primary" href="#research-questions">Explore the four research questions</a>
-              <a className="button button-secondary" href="#opportunity-map">Compare retrieval breakdowns</a>
-              <span className="build-label">Live source collection and evidence coding</span>
+              <a className="button button-secondary" href="#opportunity-map">See where finding breaks</a>
+              <a className="text-link" href="/api/evidence.csv" download>Download evidence for Excel ↓</a>
             </div>
           </div>
 
@@ -254,30 +308,30 @@ function App() {
           <section className="research-questions" id="research-questions">
             <div className="section-heading">
               <p className="eyebrow">Question-led findings</p>
-              <h2>The four questions are answered from coded episodes, with uncertainty visible.</h2>
+              <h2>Four research questions, answered in plain language from real user stories.</h2>
               <p>
-                {system.research.coverage.codedEpisodes} coded of {system.research.coverage.admittedEpisodes} admitted episodes · {system.research.coverage.humanVerifiedEpisodes} human verified · {system.research.coverage.sourceKinds.length} {system.research.coverage.sourceKinds.length === 1 ? "source type" : "source types"}. Counts describe this selected corpus, not all Google Photos users.
+                {screenedCandidates.toLocaleString()} public posts and reviews screened · {system.research.coverage.codedEpisodes} relevant stories included · {system.research.coverage.humanVerifiedEpisodes} human checked · {system.research.coverage.sourceKinds.length} {system.research.coverage.sourceKinds.length === 1 ? "source type" : "source types"}. These are research signals, not percentages of all Google Photos users.
               </p>
-              {system.research.coverage.truncated && <p>Only the first 1,000 admitted episodes are included in these findings; refine the corpus before interpreting counts.</p>}
+              {system.research.coverage.truncated && <p>Only the first 1,000 included stories are summarized here.</p>}
             </div>
             <div className="question-grid">
               {system.research.questions.map((finding, index) => (
                 <article className="question-card" key={finding.id}>
-                  <div className="question-topline"><span>QUESTION {index + 1}</span><span>{finding.evidenceState === "not_observed" ? "Not observed" : finding.evidenceState === "early_directional" ? "Early, directional" : "Multi-source, directional"}</span></div>
+                  <div className="question-topline"><span>QUESTION {index + 1}</span><span>{evidenceStrengthLabel(finding.evidenceState)}</span></div>
                   <h3>{finding.question}</h3>
-                  <p className="question-count">{finding.observedEpisodes} of {system.research.coverage.codedEpisodes} coded episodes contain an explicit signal</p>
+                  <p className="question-count">{finding.observedEpisodes} of {system.research.coverage.codedEpisodes} included stories mention this clearly</p>
                   {finding.patterns.length > 0 ? (
                     <div className="pattern-list">
                       {finding.patterns.slice(0, 5).map((pattern) => (
                         <details key={pattern.code}>
-                          <summary><span>{friendlyLabel(pattern.code)}</span><strong>{pattern.episodes} {pattern.episodes === 1 ? "episode" : "episodes"}</strong></summary>
+                          <summary><span>{friendlyLabel(pattern.code)}</span><strong>{pattern.episodes} {pattern.episodes === 1 ? "story" : "stories"}</strong></summary>
                           {pattern.examples.map((example) => (
                             <p key={example.id}>“{example.source_text}” <a href={example.canonical_url} target="_blank" rel="noreferrer">Source ↗</a></p>
                           ))}
                         </details>
                       ))}
                     </div>
-                  ) : <p className="question-unknown">{finding.id === "forgotten" ? "The current admitted posts do not explicitly state a memory gap. An unstated detail is not treated as forgotten." : "The current admitted posts do not establish a specific pattern for this question."}</p>}
+                  ) : <p className="question-unknown">{finding.id === "forgotten" ? "The included posts do not clearly say what was forgotten. A missing detail is not automatically treated as forgotten." : "The included posts do not yet show a clear pattern for this question."}</p>}
                   {finding.id === "searches" && <p className="exact-query-note">Exact user-reported queries: {finding.reportedExactQueries?.length ? finding.reportedExactQueries.map((item) => `“${item.query}”`).join(", ") : "none in the current corpus"}.</p>}
                   <p className="question-caveat">{finding.caveat}</p>
                 </article>
@@ -289,8 +343,8 @@ function App() {
         {system.kind === "online" && (
           <section className="opportunity-section" id="opportunity-map">
             <div className="section-heading">
-              <p className="eyebrow">Business metric → product outcomes</p>
-              <h2>Retrieval success is a chain; different breakdowns need different outcomes.</h2>
+              <p className="eyebrow">Where finding breaks</p>
+              <h2>Finding a remembered photo has five steps—and each can fail differently.</h2>
               <p>{system.opportunity.metric.productOutcome}</p>
             </div>
             <div className="metric-chain" aria-label="Retrieval outcome chain">
@@ -306,12 +360,12 @@ function App() {
 
             <div className="comparison-summary">
               <div>
-                <span>Most observed in this selected corpus</span>
-                <strong>{system.opportunity.comparison.mostObservedMechanism ? friendlyLabel(system.opportunity.comparison.mostObservedMechanism.code) : "No mechanism observed"}</strong>
+                <span>Most common breakdown in the included stories</span>
+                <strong>{system.opportunity.comparison.mostObservedMechanism ? breakdownLabels[system.opportunity.comparison.mostObservedMechanism.code] : "No breakdown observed"}</strong>
               </div>
               <div>
-                <span>Mechanism coding coverage</span>
-                <strong>{system.opportunity.coverage.mechanismCodedEpisodes} of {system.opportunity.coverage.admittedEpisodes} episodes</strong>
+                <span>Stories checked against the five steps</span>
+                <strong>{system.opportunity.coverage.mechanismCodedEpisodes} of {system.opportunity.coverage.admittedEpisodes} stories</strong>
               </div>
               <p>{system.opportunity.comparison.caveat}</p>
             </div>
@@ -321,23 +375,23 @@ function App() {
                 <article className={`opportunity-card ${area.episodes === 0 ? "opportunity-card-empty" : ""}`} key={area.code}>
                   <div className="opportunity-topline">
                     <span>{area.journeyStep}</span>
-                    <span>{area.evidenceStrength === "multi_source_directional" ? "Multi-source, directional" : area.evidenceStrength === "early_directional" ? "Early, directional" : "Not observed"}</span>
+                    <span>{evidenceStrengthLabel(area.evidenceStrength)}</span>
                   </div>
-                  <h3>{friendlyLabel(area.code)}</h3>
+                  <h3>{breakdownLabels[area.code]}</h3>
                   <p className="opportunity-problem">{area.userProblem}</p>
                   <div className="opportunity-counts">
-                    <div><strong>{area.episodes}</strong><span>coded episodes</span></div>
-                    <div><strong>{area.sourceKinds.length}</strong><span>source types</span></div>
-                    <div><strong>{area.unresolvedEpisodes}</strong><span>unresolved</span></div>
+                    <div><strong>{area.episodes}</strong><span>{area.episodes === 1 ? "real user story" : "real user stories"}</span></div>
+                    <div><strong>{area.sourceKinds.length}</strong><span>{area.sourceKinds.length === 1 ? "source type" : "source types"}</span></div>
+                    <div><strong>{area.unresolvedEpisodes}</strong><span>still not found</span></div>
                   </div>
                   <div className="outcome-box">
-                    <span>Product outcome</span>
+                    <span>What must improve</span>
                     <strong>{area.productOutcome}</strong>
-                    <small>Leading metric · {area.leadingMetric}</small>
+                    <small>How we would measure it · {area.leadingMetric}</small>
                   </div>
                   {area.examples.length > 0 && (
                     <details className="mechanism-evidence">
-                      <summary>Inspect supporting evidence</summary>
+                      <summary>See the supporting user quotes</summary>
                       {area.examples.map((example) => (
                         <div key={example.id}>
                           <p>“{example.source_text}”</p>
@@ -347,37 +401,78 @@ function App() {
                       ))}
                     </details>
                   )}
-                  <p className="diagnostic-note">Diagnostics · {area.diagnosticMetrics.join(" · ")}</p>
+                  <details className="diagnostic-note"><summary>Technical measurement details</summary><p>{area.diagnosticMetrics.join(" · ")}</p></details>
                 </article>
               ))}
             </div>
           </section>
         )}
 
+        {system.kind === "online" && (
+          <section className="problem-section" id="problem-definition">
+            <div className="section-heading">
+              <p className="eyebrow">Provisional product focus</p>
+              <h2>Focus on people who remember the photo’s content—but search does not turn those clues into a useful shortlist.</h2>
+              <p>{system.problem.caveat}</p>
+            </div>
+
+            <article className="problem-statement">
+              <span>Problem statement</span>
+              <p>{system.problem.problemStatement}</p>
+            </article>
+
+            <div className="problem-evidence-strip">
+              <div><strong>{system.problem.evidence.focusStories}</strong><span>supporting stories</span></div>
+              <div><strong>{system.problem.evidence.sourceKinds.length}</strong><span>source types</span></div>
+              <div><strong>{system.problem.evidence.unresolvedStories}</strong><span>still unresolved</span></div>
+              <div><strong>{system.problem.evidence.humanCheckedStories}</strong><span>human checked</span></div>
+            </div>
+
+            <div className="problem-grid">
+              <article><span>Who we are focusing on</span><p>{system.problem.targetSegment}</p></article>
+              <article><span>The moment to solve</span><p>{system.problem.retrievalScenario}</p></article>
+              <article><span>Why finding fails</span><p>{system.problem.rootCause}</p></article>
+              <article><span>What people do today</span><p>{system.problem.currentWorkarounds.length ? system.problem.currentWorkarounds.join(" · ") : "No workaround was stated in the focus stories."}</p></article>
+              <article><span>Value to the user</span><p>{system.problem.userValue}</p></article>
+              <article><span>Why it matters to Google Photos</span><p>{system.problem.businessValue}</p></article>
+            </div>
+
+            <div className="problem-outcome">
+              <div><span>Product outcome</span><strong>{system.problem.productOutcome}</strong></div>
+              <div><span>Leading metric</span><strong>{system.problem.leadingMetric}</strong></div>
+            </div>
+
+            <details className="open-questions">
+              <summary>What primary research still needs to prove</summary>
+              <ul>{system.problem.openQuestions.map((question) => <li key={question}>{question}</li>)}</ul>
+            </details>
+          </section>
+        )}
+
         <section className="principle-strip" aria-label="Research principles">
           <div><strong>Evidence first</strong><span>Every finding traces back to a public source.</span></div>
           <div><strong>Beyond sentiment</strong><span>We code memory, behavior, failure, and workaround.</span></div>
-          <div><strong>Honest confidence</strong><span>Corpus patterns are not population prevalence.</span></div>
+          <div><strong>Honest confidence</strong><span>Patterns in these stories are not percentages of all users.</span></div>
         </section>
 
         <section className="evidence-foundation" id="evidence">
           <div className="section-heading">
-            <p className="eyebrow">Live research corpus</p>
-            <h2>Only evidence that survives relevance and provenance checks reaches the corpus.</h2>
-            <p>Counts update from D1 and exclude simulations and public records rejected during scope review.</p>
+            <p className="eyebrow">What is in the research database</p>
+            <h2>Many items are screened; only true remembered-photo retrieval stories are included.</h2>
+            <p>The live D1 database excludes generic app complaints, simulations, and posts without a clear retrieval attempt. Download the included rows for Excel if you want to audit them yourself.</p>
           </div>
 
           <div className="metric-grid" aria-live="polite">
-            <article className="metric-card"><span>Admitted source URLs</span><strong>{corpus.source_count}</strong><small>One public link per episode</small></article>
-            <article className="metric-card"><span>Admitted conversations</span><strong>{corpus.document_count}</strong><small>Original language preserved</small></article>
-            <article className="metric-card"><span>Evidence units</span><strong>{corpus.evidence_count}</strong><small>Structured retrieval episodes</small></article>
-            <article className="metric-card"><span>Human verified</span><strong>{corpus.verified_count}</strong><small>Coding reviewed against source</small></article>
+            <article className="metric-card"><span>Public items screened</span><strong>{screenedCandidates.toLocaleString()}</strong><small>Reviews, posts, and comments checked</small></article>
+            <article className="metric-card"><span>Included user stories</span><strong>{corpus.evidence_count}</strong><small>Directly relevant to remembered-photo retrieval</small></article>
+            <article className="metric-card"><span>Source types represented</span><strong>{system.kind === "online" ? system.bySource.length : 0}</strong><small>Independent public platforms with evidence</small></article>
+            <article className="metric-card"><span>Human checked</span><strong>{corpus.verified_count}</strong><small>Compared with the original source</small></article>
           </div>
 
           <div className="integrity-note">
             <span className="integrity-icon" aria-hidden="true">✓</span>
             <div>
-              <strong>Research-integrity guardrail active</strong>
+              <strong>Why the included number is smaller</strong>
               <p>
                 {system.kind === "online" ? system.publicExcluded : 0} out-of-scope public records and {system.kind === "online" ? system.simulatedExcluded : 0} illustrative records are excluded from findings.
               </p>
@@ -389,15 +484,15 @@ function App() {
           <section className="coverage-section" id="source-coverage">
             <div className="section-heading">
               <p className="eyebrow">Source coverage</p>
-              <h2>Seven requested source families; collection and admitted evidence are different.</h2>
-              <p>Attempted means a collector has run, not that it produced relevant evidence. Missing platforms remain visible.</p>
+              <h2>What we tried to collect—and what produced useful retrieval stories.</h2>
+              <p>“Attempted” means the collector ran. It does not mean the source contained a relevant remembered-photo story.</p>
             </div>
             <div className="coverage-list">
               {system.sourceCoverage.sources.map((source) => (
                 <div className="coverage-row" key={source.sourceKind}>
                   <strong>{friendlyLabel(source.sourceKind)}</strong>
                   <span>{source.status === "attempted" ? `${source.uniqueCandidates} unique candidates · ${source.runCount} runs` : "Not connected"}</span>
-                  <span>{source.admittedEpisodes} admitted {source.admittedEpisodes === 1 ? "episode" : "episodes"}</span>
+                  <span>{source.admittedEpisodes} included {source.admittedEpisodes === 1 ? "story" : "stories"}</span>
                 </div>
               ))}
             </div>
@@ -407,7 +502,7 @@ function App() {
 
         <section className="explorer" id="explorer">
           <div className="section-heading">
-            <p className="eyebrow">Evidence explorer</p>
+            <p className="eyebrow">Read the real user stories</p>
             <h2>See the user’s words before accepting the AI’s interpretation.</h2>
             <p>Every card pairs an exact source excerpt with structured memory clues and a direct source link.</p>
           </div>
@@ -430,7 +525,7 @@ function App() {
                       {forgotten.map((detail) => <span className="tag-forgotten" key={`forgotten-${detail}`}>Forgotten · {detail}</span>)}
                     </div>
                     <div className="evidence-footer">
-                      <span>{friendlyLabel(item.failure_stage)} · {friendlyLabel(item.retrieval_outcome)}</span>
+                      <span>{failureLabels[item.failure_stage] ?? friendlyLabel(item.failure_stage)} · {friendlyLabel(item.retrieval_outcome)}</span>
                       <a href={item.canonical_url} target="_blank" rel="noreferrer">Open source ↗</a>
                     </div>
                     {item.audit_notes && (
@@ -444,14 +539,14 @@ function App() {
                 );
               })}
             </div>
-          ) : <p className="empty-state">No admissible evidence has been retained yet.</p>}
+          ) : <p className="empty-state">No relevant user stories have been included yet.</p>}
         </section>
 
         <section className="runs-section">
           <div className="section-heading">
             <p className="eyebrow">Collection diagnostics</p>
-            <h2>Low yield is visible instead of being disguised as insight.</h2>
-            <p>Completed runs show how much material was scanned and how little met the research definition.</p>
+            <h2>See how much was scanned—and how much truly matched the question.</h2>
+            <p>This prevents a large review count from being mistaken for strong retrieval evidence.</p>
           </div>
           <div className="run-list">
             {runs.map((run) => (
@@ -468,7 +563,7 @@ function App() {
           <div className="section-heading">
             <p className="eyebrow">Evidence chain</p>
             <h2>One auditable path from public conversation to product opportunity</h2>
-            <p>Raw source text stays separate from Groq interpretation; deterministic APIs calculate coverage and breakdowns.</p>
+            <p>Raw user words stay separate from Groq’s interpretation, and fixed database rules calculate every count.</p>
           </div>
           <div className="stage-grid">
             {stages.map((stage) => <article className="stage-card" key={stage.number}><span className="stage-number">{stage.number}</span><h3>{stage.title}</h3><p>{stage.description}</p></article>)}
@@ -477,7 +572,7 @@ function App() {
 
         <section className="next-step">
           <div><p className="eyebrow">Next research gate</p><h2>Validate the observed interpretation breakdown before choosing a solution.</h2></div>
-          <p>The corpus now supports mechanism comparison, but not market sizing. Add targeted evidence and real retrieval tasks before treating the most observed mechanism as the final product opportunity.</p>
+          <p>The 17 stories now support a provisional focus, not market sizing. Test real retrieval tasks before treating clue misunderstanding as the final product opportunity.</p>
         </section>
       </main>
 

@@ -49,10 +49,10 @@ export function buildResearchQuestions(rows: ResearchRow[], totalAdmitted: numbe
     truncated: rows.length < totalAdmitted,
   };
   const definitions: Array<{ id: string; question: string; dimension: Dimension; caveat: string }> = [
-    { id: "photo_types", question: "What kinds of old photos do users struggle to retrieve?", dimension: "target_types_json", caveat: "Types describe only admitted retrieval episodes; one episode can have several types." },
-    { id: "remembered", question: "What information do people actually remember about a photo?", dimension: "remembered_clue_types_json", caveat: "A clue is counted only if it appears in the user's account, not because the photo likely contains it." },
-    { id: "forgotten", question: "What information have they forgotten?", dimension: "explicitly_forgotten_json", caveat: "Not stated is not the same as forgotten. This counts only explicit memory gaps." },
-    { id: "searches", question: "How do users formulate searches when their memory is incomplete?", dimension: "search_methods_json", caveat: "Attempted methods and explicitly requested methods are distinct from exact typed queries or advice offered by others." },
+    { id: "photo_types", question: "What kinds of old photos do users struggle to retrieve?", dimension: "target_types_json", caveat: "One user story can mention more than one type of photo." },
+    { id: "remembered", question: "What information do people actually remember about a photo?", dimension: "remembered_clue_types_json", caveat: "A detail is counted only when the user says they remember it." },
+    { id: "forgotten", question: "What information have they forgotten?", dimension: "explicitly_forgotten_json", caveat: "A missing detail is not automatically forgotten. We count it only when the user says they do not remember it." },
+    { id: "searches", question: "How do users formulate searches when their memory is incomplete?", dimension: "search_methods_json", caveat: "We separate what the user tried, what they wanted to try, and the exact words they typed." },
   ];
   return {
     coverage,

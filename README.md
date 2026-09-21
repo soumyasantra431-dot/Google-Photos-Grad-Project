@@ -41,6 +41,7 @@ Wrangler configuration so both the API and static interface are published togeth
 - `GET /api/health` checks the Worker and D1 binding.
 - `GET /api/stats` returns admissible corpus totals and coverage breakdowns.
 - `GET /api/evidence` lists only real, included evidence by default.
+- `GET /api/evidence.csv` downloads the included, source-linked evidence in an Excel-friendly CSV.
 - `GET /api/evidence/:id` returns a traceable evidence record and its source text.
 - `GET /api/evidence?includeSimulated=true` is an explicit test-only view.
 - `GET /api/research-questions` answers the four required questions with coded episode counts,
@@ -49,6 +50,8 @@ Wrangler configuration so both the API and static interface are published togeth
   result evaluation, search refinement, and library access. It compares evidence strength and
   connects each mechanism to a product outcome, leading metric, and diagnostics without inventing
   a market-size or prioritization score.
+- `GET /api/problem-definition` turns the leading observed breakdown into a provisional target
+  segment, retrieval scenario, root cause, product outcome, and explicit validation gaps.
 - `GET /api/source-coverage` distinguishes source families attempted from evidence admitted.
 
 Optional filters are `failureStage`, `sourceKind`, and `limit` (1-50).
