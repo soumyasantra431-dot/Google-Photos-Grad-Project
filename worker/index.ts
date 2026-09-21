@@ -2,6 +2,7 @@ import { collectYouTubeEvidence, ingestAppStoreEvidence, ingestCuratedPublicEvid
 import { buildOpportunityMap, type OpportunityRow } from "./opportunity";
 import { buildProblemDefinition } from "./problem";
 import { buildResearchQuestions, type ResearchRow } from "./research";
+import { ANALYSIS_TEMPLATES, getGroundedAnalysis, type AnalysisTemplateId } from "./analysis";
 
 type EvidenceFilters = {
   limit: number;
@@ -387,6 +388,19 @@ export default {
 
       if (request.method === "GET" && url.pathname === "/api/source-coverage") {
         return await getSourceCoverage(env.DB);
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/analysis-templates") {
+        return jsonResponse({
+          templates: Object.entries(ANALYSIS_TEMPLATES).map(([id, template]) => ({ id, label: template.label })),
+          note: "Questions are intentionally limited so the public endpoint cannot be used as an unrestricted LLM proxy.",
+        });
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/grounded-analysis") {
+        const templateId = url.searchParams.get("template") ?? "";
+        if (!(templateId in ANALYSIS_TEMPLATES)) return badRequest("template is not recognized");
+        return jsonResponse(await getGroundedAnalysis(env.DB, env.GROQ_API_KEY, templateId as AnalysisTemplateId));
       }
 
       if (request.method === "GET" && url.pathname === "/api/collection-runs") {

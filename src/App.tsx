@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 
 type CorpusStats = {
   source_count: number;
@@ -122,6 +122,32 @@ type ProblemDefinition = {
   caveat: string;
 };
 
+type AnalysisTemplateId = "photo_types" | "remembered_clues" | "forgotten_context" | "search_language" | "compare_breakdowns" | "choose_opportunity";
+
+type GroundedAnalysis = {
+  templateId: AnalysisTemplateId;
+  question: string;
+  analysis: {
+    answer: string;
+    insights: Array<{ label: string; finding: string; evidenceIds: string[]; implication: string }>;
+    caveat: string;
+  };
+  evidence: Array<{ id: string; sourceText: string; sourceKind: string; canonicalUrl: string }>;
+  provenance: {
+    model: string;
+    includedStories: number;
+    generatedAt: string;
+    cacheStatus: "hit" | "generated";
+    method: string;
+  };
+};
+
+type AnalysisState =
+  | { kind: "idle" }
+  | { kind: "loading"; templateId: AnalysisTemplateId }
+  | { kind: "ready"; data: GroundedAnalysis }
+  | { kind: "error"; message: string };
+
 type SystemState =
   | { kind: "loading" }
   | {
@@ -149,6 +175,23 @@ const stages = [
 ];
 
 const emptyStats: CorpusStats = { source_count: 0, document_count: 0, evidence_count: 0, verified_count: 0 };
+
+const analysisTemplates: Array<{ id: AnalysisTemplateId; label: string; shortLabel: string }> = [
+  { id: "photo_types", label: "What kinds of old photos do users struggle to retrieve?", shortLabel: "Hard-to-find photo types" },
+  { id: "remembered_clues", label: "What information do people actually remember about a photo?", shortLabel: "Remembered clues" },
+  { id: "forgotten_context", label: "What information have they forgotten?", shortLabel: "Forgotten details" },
+  { id: "search_language", label: "How do users formulate searches when memory is incomplete?", shortLabel: "Search language" },
+  { id: "compare_breakdowns", label: "How do the five retrieval problems compare?", shortLabel: "Compare breakdowns" },
+  { id: "choose_opportunity", label: "Which opportunity should we validate first?", shortLabel: "Choose an opportunity" },
+];
+
+const opportunityColors: Record<string, string> = {
+  clue_expression: "#e8710a",
+  clue_interpretation: "#1a73e8",
+  result_evaluation: "#9334e6",
+  search_refinement: "#0097a7",
+  library_access: "#5f6368",
+};
 
 function parseStringArray(value: string): string[] {
   try {
@@ -185,8 +228,26 @@ function evidenceStrengthLabel(value: "not_observed" | "early_directional" | "mu
   return "No verified example yet";
 }
 
+function percent(part: number, total: number): number {
+  return total > 0 ? Math.round((part / total) * 100) : 0;
+}
+
+function conicGradient(items: Array<{ value: number; color: string }>): string {
+  const total = items.reduce((sum, item) => sum + item.value, 0);
+  if (!total) return "conic-gradient(#e8eaed 0deg 360deg)";
+  let cursor = 0;
+  const stops = items.map((item) => {
+    const start = cursor;
+    cursor += (item.value / total) * 360;
+    return `${item.color} ${start}deg ${cursor}deg`;
+  });
+  return `conic-gradient(${stops.join(", ")})`;
+}
+
 function App() {
   const [system, setSystem] = useState<SystemState>({ kind: "loading" });
+  const [analysis, setAnalysis] = useState<AnalysisState>({ kind: "idle" });
+  const [activeOpportunity, setActiveOpportunity] = useState("clue_interpretation");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -254,6 +315,30 @@ function App() {
   const screenedCandidates = system.kind === "online"
     ? system.sourceCoverage.sources.reduce((total, source) => total + source.uniqueCandidates, 0)
     : 0;
+  const opportunityTotal = system.kind === "online"
+    ? system.opportunity.areas.reduce((total, area) => total + area.episodes, 0)
+    : 0;
+  const selectedOpportunity = system.kind === "online"
+    ? system.opportunity.areas.find((area) => area.code === activeOpportunity) ?? system.opportunity.areas[0]
+    : undefined;
+  const opportunityDonut = system.kind === "online"
+    ? conicGradient(system.opportunity.areas.map((area) => ({ value: area.episodes, color: opportunityColors[area.code] ?? "#9aa0a6" })))
+    : conicGradient([]);
+  const sourceDonut = system.kind === "online"
+    ? conicGradient(system.bySource.map((source, index) => ({ value: source.evidence_count, color: ["#1a73e8", "#e8710a", "#9334e6", "#0097a7"][index] ?? "#5f6368" })))
+    : conicGradient([]);
+  const includedRate = percent(corpus.evidence_count, screenedCandidates);
+
+  async function askEvidence(templateId: AnalysisTemplateId) {
+    setAnalysis({ kind: "loading", templateId });
+    try {
+      const response = await fetch(`/api/grounded-analysis?template=${encodeURIComponent(templateId)}`);
+      if (!response.ok) throw new Error("The AI analysis could not be generated right now.");
+      setAnalysis({ kind: "ready", data: await response.json() as GroundedAnalysis });
+    } catch (error) {
+      setAnalysis({ kind: "error", message: error instanceof Error ? error.message : "The AI analysis could not be generated right now." });
+    }
+  }
 
   return (
     <div className="app-shell">
@@ -285,8 +370,8 @@ function App() {
               conversation behind every finding.
             </p>
             <div className="hero-actions">
-              <a className="button button-primary" href="#research-questions">Explore the four research questions</a>
-              <a className="button button-secondary" href="#opportunity-map">See where finding breaks</a>
+              <a className="button button-primary" href="#ask-evidence">Ask the evidence</a>
+              <a className="button button-secondary" href="#opportunity-map">Compare retrieval problems</a>
               <a className="text-link" href="/api/evidence.csv" download>Download evidence for Excel ↓</a>
             </div>
           </div>
@@ -305,6 +390,139 @@ function App() {
         </section>
 
         {system.kind === "online" && (
+          <section className="evidence-snapshot" aria-labelledby="snapshot-title">
+            <div className="section-heading compact-heading">
+              <p className="eyebrow">Start here</p>
+              <h2 id="snapshot-title">One glance shows the strongest signal—and how carefully it was filtered.</h2>
+              <p>Percentages below describe the {corpus.evidence_count} included stories only. They are not estimates of all Google Photos users.</p>
+            </div>
+            <div className="snapshot-grid">
+              <article className="visual-card">
+                <div className="visual-card-copy">
+                  <span className="visual-kicker">Retrieval breakdowns</span>
+                  <strong>{percent(system.opportunity.comparison.mostObservedMechanism?.episodes ?? 0, opportunityTotal)}%</strong>
+                  <p>of included stories point to search misunderstanding the remembered clue—the largest observed breakdown.</p>
+                </div>
+                <div className="donut-wrap">
+                  <div className="donut" style={{ background: opportunityDonut } as CSSProperties}><span>{opportunityTotal}<small>stories</small></span></div>
+                  <div className="chart-legend">
+                    {system.opportunity.areas.map((area) => (
+                      <button type="button" key={area.code} onClick={() => { setActiveOpportunity(area.code); document.getElementById("opportunity-map")?.scrollIntoView(); }}>
+                        <i style={{ background: opportunityColors[area.code] }} />
+                        <span>{breakdownLabels[area.code]}</span>
+                        <strong>{percent(area.episodes, opportunityTotal)}%</strong>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </article>
+
+              <article className="visual-card">
+                <div className="visual-card-copy">
+                  <span className="visual-kicker">Evidence funnel</span>
+                  <strong>{includedRate}%</strong>
+                  <p>of screened public items met the strict definition of a remembered-photo retrieval story.</p>
+                </div>
+                <div className="funnel" aria-label={`${screenedCandidates} screened, ${corpus.evidence_count} included, ${corpus.verified_count} human checked`}>
+                  <div className="funnel-row"><span>Screened</span><strong>{screenedCandidates.toLocaleString()}</strong><i style={{ width: "100%" }} /></div>
+                  <div className="funnel-row"><span>Included</span><strong>{corpus.evidence_count}</strong><i style={{ width: `${Math.max(includedRate, 3)}%` }} /></div>
+                  <div className="funnel-row"><span>Human checked</span><strong>{corpus.verified_count}</strong><i style={{ width: `${Math.max(percent(corpus.verified_count, screenedCandidates), 3)}%` }} /></div>
+                </div>
+                <p className="chart-note">A small inclusion rate is a quality control result—not weak collection volume.</p>
+              </article>
+
+              <article className="visual-card source-card">
+                <div className="visual-card-copy">
+                  <span className="visual-kicker">Included source mix</span>
+                  <strong>{system.bySource.length}</strong>
+                  <p>public source types currently contribute admissible retrieval evidence.</p>
+                </div>
+                <div className="donut-wrap compact-donut">
+                  <div className="donut" style={{ background: sourceDonut } as CSSProperties}><span>{corpus.evidence_count}<small>stories</small></span></div>
+                  <div className="source-list">
+                    {system.bySource.map((source, index) => (
+                      <div key={source.source_kind ?? `source-${index}`}><i style={{ background: ["#1a73e8", "#e8710a", "#9334e6", "#0097a7"][index] ?? "#5f6368" }} /><span>{friendlyLabel(source.source_kind ?? "unknown")}</span><strong>{percent(source.evidence_count, corpus.evidence_count)}%</strong></div>
+                    ))}
+                  </div>
+                </div>
+              </article>
+            </div>
+          </section>
+        )}
+
+        {system.kind === "online" && (
+          <section className="ask-evidence" id="ask-evidence">
+            <div className="section-heading">
+              <p className="eyebrow">Ask the evidence</p>
+              <h2>Choose a research question. Groq answers only from the included, source-linked stories.</h2>
+              <p>This is guided qualitative analysis—not a general chatbot. Fixed D1 queries calculate counts; the LLM explains patterns and must cite valid evidence IDs.</p>
+            </div>
+            <div className="ask-layout">
+              <div className="template-panel">
+                <span className="panel-label">Ready-made questions</span>
+                {analysisTemplates.map((template, index) => (
+                  <button
+                    type="button"
+                    className={analysis.kind === "ready" && analysis.data.templateId === template.id ? "template-button template-button-active" : "template-button"}
+                    key={template.id}
+                    onClick={() => void askEvidence(template.id)}
+                    disabled={analysis.kind === "loading"}
+                  >
+                    <span>{String(index + 1).padStart(2, "0")}</span>
+                    <div><strong>{template.shortLabel}</strong><small>{template.label}</small></div>
+                    <b aria-hidden="true">→</b>
+                  </button>
+                ))}
+              </div>
+
+              <div className="answer-panel" aria-live="polite">
+                {analysis.kind === "idle" && (
+                  <div className="answer-empty">
+                    <span aria-hidden="true">✦</span>
+                    <h3>Start with one of the four required research questions.</h3>
+                    <p>The answer will show AI synthesis, product implications, and the exact public evidence behind it.</p>
+                    <button type="button" className="button button-primary" onClick={() => void askEvidence("photo_types")}>Analyze hard-to-find photo types</button>
+                  </div>
+                )}
+                {analysis.kind === "loading" && (
+                  <div className="answer-empty"><span className="analysis-spinner" /><h3>Reading the evidence…</h3><p>Groq is comparing the human-checked retrieval stories. It cannot search outside this corpus.</p></div>
+                )}
+                {analysis.kind === "error" && (
+                  <div className="answer-empty"><span aria-hidden="true">!</span><h3>Analysis is temporarily unavailable.</h3><p>{analysis.message}</p><button type="button" className="button button-secondary" onClick={() => setAnalysis({ kind: "idle" })}>Choose another question</button></div>
+                )}
+                {analysis.kind === "ready" && (
+                  <div className="answer-content">
+                    <div className="answer-provenance"><span>AI analysis · {friendlyLabel(analysis.data.provenance.model)}</span><span>{analysis.data.provenance.includedStories} included stories · {analysis.data.provenance.cacheStatus === "hit" ? "saved analysis" : "generated now"}</span></div>
+                    <h3>{analysis.data.question}</h3>
+                    <p className="answer-summary">{analysis.data.analysis.answer}</p>
+                    <div className="insight-list">
+                      {analysis.data.analysis.insights.map((insight, index) => (
+                        <article key={`${insight.label}-${index}`}>
+                          <span>{String(index + 1).padStart(2, "0")}</span>
+                          <div>
+                            <h4>{insight.label}</h4>
+                            <p>{insight.finding}</p>
+                            <strong>Product implication</strong><p>{insight.implication}</p>
+                            <details>
+                              <summary>Open {insight.evidenceIds.length} cited {insight.evidenceIds.length === 1 ? "source" : "sources"}</summary>
+                              {insight.evidenceIds.flatMap((id) => analysis.data.evidence.filter((item) => item.id === id)).map((item) => (
+                                <blockquote key={item.id}>“{item.sourceText}” <a href={item.canonicalUrl} target="_blank" rel="noreferrer">{friendlyLabel(item.sourceKind)} source ↗</a></blockquote>
+                              ))}
+                            </details>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                    <div className="analysis-caveat"><strong>What this answer cannot claim</strong><p>{analysis.data.analysis.caveat}</p></div>
+                    <details className="method-detail"><summary>How this AI answer was produced</summary><p>{analysis.data.provenance.method}</p><small>Generated {new Date(analysis.data.provenance.generatedAt).toLocaleString()}</small></details>
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {system.kind === "online" && (
           <section className="research-questions" id="research-questions">
             <div className="section-heading">
               <p className="eyebrow">Question-led findings</p>
@@ -319,7 +537,10 @@ function App() {
                 <article className="question-card" key={finding.id}>
                   <div className="question-topline"><span>QUESTION {index + 1}</span><span>{evidenceStrengthLabel(finding.evidenceState)}</span></div>
                   <h3>{finding.question}</h3>
-                  <p className="question-count">{finding.observedEpisodes} of {system.research.coverage.codedEpisodes} included stories mention this clearly</p>
+                  <div className="question-share">
+                    <strong>{percent(finding.observedEpisodes, system.research.coverage.codedEpisodes)}%</strong>
+                    <div><span>{finding.observedEpisodes} of {system.research.coverage.codedEpisodes} included stories mention this clearly</span><i><b style={{ width: `${percent(finding.observedEpisodes, system.research.coverage.codedEpisodes)}%` }} /></i></div>
+                  </div>
                   {finding.patterns.length > 0 ? (
                     <div className="pattern-list">
                       {finding.patterns.slice(0, 5).map((pattern) => (
@@ -347,14 +568,17 @@ function App() {
               <h2>Finding a remembered photo has five steps—and each can fail differently.</h2>
               <p>{system.opportunity.metric.productOutcome}</p>
             </div>
-            <div className="metric-chain" aria-label="Retrieval outcome chain">
+            <div className="metric-chain" aria-label="Choose a retrieval breakdown to compare">
               {system.opportunity.metric.journey.map((step, index) => (
-                <div className="metric-chain-step" key={step.code}>
+                <button type="button" className={activeOpportunity === step.code ? "metric-chain-step metric-chain-step-active" : "metric-chain-step"} key={step.code} onClick={() => setActiveOpportunity(step.code)}>
                   <span>{String(index + 1).padStart(2, "0")}</span>
                   <strong>{step.journeyStep}</strong>
                   <p>{step.productOutcome}</p>
-                  <small>{step.leadingMetric}</small>
-                </div>
+                  {(() => {
+                    const stories = system.opportunity.areas.find((area) => area.code === step.code)?.episodes ?? 0;
+                    return <small>{stories} {stories === 1 ? "story" : "stories"} · {percent(stories, opportunityTotal)}%</small>;
+                  })()}
+                </button>
               ))}
             </div>
 
@@ -370,41 +594,39 @@ function App() {
               <p>{system.opportunity.comparison.caveat}</p>
             </div>
 
-            <div className="opportunity-grid">
-              {system.opportunity.areas.map((area) => (
-                <article className={`opportunity-card ${area.episodes === 0 ? "opportunity-card-empty" : ""}`} key={area.code}>
+            {selectedOpportunity && (
+              <div className="opportunity-focus">
+                <article className={`opportunity-card ${selectedOpportunity.episodes === 0 ? "opportunity-card-empty" : ""}`}>
                   <div className="opportunity-topline">
-                    <span>{area.journeyStep}</span>
-                    <span>{evidenceStrengthLabel(area.evidenceStrength)}</span>
+                    <span>{selectedOpportunity.journeyStep}</span>
+                    <span>{evidenceStrengthLabel(selectedOpportunity.evidenceStrength)}</span>
                   </div>
-                  <h3>{breakdownLabels[area.code]}</h3>
-                  <p className="opportunity-problem">{area.userProblem}</p>
+                  <h3>{breakdownLabels[selectedOpportunity.code]}</h3>
+                  <p className="opportunity-problem">{selectedOpportunity.userProblem}</p>
                   <div className="opportunity-counts">
-                    <div><strong>{area.episodes}</strong><span>{area.episodes === 1 ? "real user story" : "real user stories"}</span></div>
-                    <div><strong>{area.sourceKinds.length}</strong><span>{area.sourceKinds.length === 1 ? "source type" : "source types"}</span></div>
-                    <div><strong>{area.unresolvedEpisodes}</strong><span>still not found</span></div>
+                    <div><strong>{selectedOpportunity.episodes}</strong><span>{selectedOpportunity.episodes === 1 ? "real user story" : "real user stories"}</span></div>
+                    <div><strong>{percent(selectedOpportunity.episodes, opportunityTotal)}%</strong><span>of included stories</span></div>
+                    <div><strong>{selectedOpportunity.unresolvedEpisodes}</strong><span>still not found</span></div>
                   </div>
                   <div className="outcome-box">
                     <span>What must improve</span>
-                    <strong>{area.productOutcome}</strong>
-                    <small>How we would measure it · {area.leadingMetric}</small>
+                    <strong>{selectedOpportunity.productOutcome}</strong>
+                    <small>How we would measure it · {selectedOpportunity.leadingMetric}</small>
                   </div>
-                  {area.examples.length > 0 && (
-                    <details className="mechanism-evidence">
-                      <summary>See the supporting user quotes</summary>
-                      {area.examples.map((example) => (
-                        <div key={example.id}>
-                          <p>“{example.source_text}”</p>
-                          <small>{example.rationale}</small>
-                          <a href={example.canonical_url} target="_blank" rel="noreferrer">Source ↗</a>
-                        </div>
-                      ))}
-                    </details>
-                  )}
-                  <details className="diagnostic-note"><summary>Technical measurement details</summary><p>{area.diagnosticMetrics.join(" · ")}</p></details>
+                  <details className="diagnostic-note"><summary>Technical measurement details</summary><p>{selectedOpportunity.diagnosticMetrics.join(" · ")}</p></details>
                 </article>
-              ))}
-            </div>
+                <aside className="opportunity-evidence-drawer">
+                  <div><span>Evidence drawer</span><strong>{selectedOpportunity.examples.length} linked examples</strong></div>
+                  {selectedOpportunity.examples.length > 0 ? selectedOpportunity.examples.map((example) => (
+                    <blockquote key={example.id}>
+                      “{example.source_text}”
+                      <small>{example.rationale}</small>
+                      <a href={example.canonical_url} target="_blank" rel="noreferrer">Open public source ↗</a>
+                    </blockquote>
+                  )) : <p>No verified example for this breakdown yet. That absence is preserved rather than filled with synthetic evidence.</p>}
+                </aside>
+              </div>
+            )}
           </section>
         )}
 

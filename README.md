@@ -7,10 +7,12 @@ specific photos when their memory is incomplete.
 
 The current build combines authenticated YouTube collection, local Apple App Store and Google
 Photos Community collectors, and a verified-excerpt pathway for public Reddit/forum/social posts.
-Groq codes retrieval episodes; the Worker calculates question-led aggregates from D1. Raw source
-language, model output, and human corrections remain separate. Rejected or simulated material is
-excluded from findings. The admitted corpus is a small, purposively sampled qualitative set, not a
-population-prevalence estimate or proof of current product behavior for every user.
+Groq codes retrieval episodes and powers six bounded, evidence-grounded research templates; the
+Worker calculates question-led aggregates from D1. Raw source language, model output, and human
+corrections remain separate. AI answers are cached by corpus version, must cite supplied evidence
+IDs, and link back to the public source. Rejected or simulated material is excluded from findings.
+The admitted corpus is a small, purposively sampled qualitative set, not a population-prevalence
+estimate or proof of current product behavior for every user.
 
 ## Local setup
 
@@ -53,6 +55,11 @@ Wrangler configuration so both the API and static interface are published togeth
 - `GET /api/problem-definition` turns the leading observed breakdown into a provisional target
   segment, retrieval scenario, root cause, product outcome, and explicit validation gaps.
 - `GET /api/source-coverage` distinguishes source families attempted from evidence admitted.
+- `GET /api/analysis-templates` lists the six allowed public research questions.
+- `GET /api/grounded-analysis?template=photo_types` returns a cached or newly generated Groq
+  synthesis with validated evidence IDs, public citations, model provenance, and an explicit
+  limitation. Allowed template IDs are `photo_types`, `remembered_clues`, `forgotten_context`,
+  `search_language`, `compare_breakdowns`, and `choose_opportunity`; arbitrary prompts are rejected.
 
 Optional filters are `failureStage`, `sourceKind`, and `limit` (1-50).
 

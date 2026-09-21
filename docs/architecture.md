@@ -16,8 +16,9 @@ The first deployable unit contains:
 2. A Cloudflare Worker API in the same deployment.
 3. A D1 database in the APAC region with versioned migrations.
 4. Separate tables for raw documents, extracted evidence, tags, and human audits.
-5. Read-only, validated APIs for corpus health, statistics, and evidence inspection.
-6. Required encrypted secrets for YouTube, Groq, and authenticated ingestion.
+5. Read-only, validated APIs for corpus health, statistics, evidence inspection, and bounded AI synthesis.
+6. Corpus-versioned D1 snapshots so repeated public questions do not repeatedly spend LLM tokens.
+7. Required encrypted secrets for YouTube, Groq, and authenticated ingestion.
 
 This creates a reversible, testable evidence chain from collection through AI extraction and
 deterministic reporting.
@@ -40,7 +41,10 @@ Public API, feed, page, and verified-excerpt imports
  Deterministic aggregates + human audit
               |
               v
- Evidence Explorer and cited Q&A
+ Whitelisted Groq synthesis + citation validation
+              |
+              v
+ Visual comparison, evidence drawer, and cited Q&A
 ```
 
 ## Responsibility boundaries
@@ -57,8 +61,13 @@ Public API, feed, page, and verified-excerpt imports
 - **Review queue** preserves candidates and AI rejection reasons so a human can inspect omissions
   without lowering the global confidence threshold. Reviewed evidence is frozen on repeat ingestion.
 - **Groq** classifies and synthesizes; it does not invent or calculate dashboard totals.
+- **Grounded-analysis templates** limit the public LLM surface to six research questions. D1 supplies
+  fixed counts and human-checked excerpts; every generated insight must return a valid evidence ID.
+- **Analysis snapshots** cache valid Groq output against a corpus signature. A changed evidence,
+  audit, or opportunity-coding timestamp causes a new synthesis instead of serving stale analysis.
 - **Worker API** validates requests and queries bound Cloudflare services.
-- **React interface** presents evidence, coverage, uncertainty, and opportunity comparisons.
+- **React interface** presents an evidence funnel, accessible donut summaries, question templates,
+  source-linked AI answers, and one retrieval-problem comparison at a time.
 - **Opportunity coding** is a separate human-reviewed table. It does not overwrite the raw source
   or Groq extraction, and it keeps uncoded episodes visible rather than assigning a mechanism by
   inference.
@@ -71,6 +80,10 @@ Public API, feed, page, and verified-excerpt imports
 - Aggregate APIs exclude simulated and non-admissible evidence by default.
 - Model name, schema version, extraction confidence, and human verification are retained.
 - Corpus patterns are reported as evidence patterns, not population prevalence.
+- Percentages are labelled as shares of included stories; collection funnel percentages are not
+  interpreted as problem incidence.
+- Arbitrary public prompts are not accepted, preventing the Worker from becoming an unrestricted
+  Groq proxy.
 
 ## Operational checks
 
@@ -81,6 +94,8 @@ Public API, feed, page, and verified-excerpt imports
 - Default evidence and aggregate APIs exclude simulated fixtures.
 - An explicit test query can retrieve the simulated fixtures.
 - The React interface renders live corpus totals from D1.
+- Every grounded-analysis template returns at least one validated source citation from the current
+  corpus, and repeated requests use the D1 snapshot.
 - `.dev.vars` and environment files are excluded from Git.
 - No secret or synthetic research claim is presented as real evidence.
 
