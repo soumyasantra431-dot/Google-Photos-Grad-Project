@@ -97,6 +97,15 @@ and cannot establish how common a failure is. More target-specific source discov
 interviews are still needed before choosing and validating a product opportunity; simulated
 interviews must never be presented as primary research.
 
+## Primary research
+
+The engine also exposes a separate anonymous survey layer at `/api/primary-research`. The current
+instrument has eight convenience-sample responses, including seven recent retrieval attempts. Only
+anonymized structured coding is stored in `research/primary-research/`; names, emails, submission
+timestamps, response tokens, and raw free-text answers are not published. Survey counts are never
+merged into the public-evidence corpus or its percentages, and incomplete or inconsistent responses
+remain visibly flagged.
+
 ## Secrets
 
 For local Worker development, copy `.dev.vars.example` to `.dev.vars` and add values locally. Never

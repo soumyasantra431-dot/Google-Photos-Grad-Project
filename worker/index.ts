@@ -3,6 +3,7 @@ import { buildOpportunityMap, type OpportunityRow } from "./opportunity";
 import { buildProblemDefinition } from "./problem";
 import { buildResearchQuestions, type ResearchRow } from "./research";
 import { ANALYSIS_TEMPLATES, getGroundedAnalysis, type AnalysisTemplateId } from "./analysis";
+import { buildPrimaryResearchSummary } from "./primaryResearch";
 
 type EvidenceFilters = {
   limit: number;
@@ -384,6 +385,10 @@ export default {
 
       if (request.method === "GET" && url.pathname === "/api/problem-definition") {
         return await getProblemDefinition(env.DB);
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/primary-research") {
+        return jsonResponse(buildPrimaryResearchSummary());
       }
 
       if (request.method === "GET" && url.pathname === "/api/source-coverage") {
