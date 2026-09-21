@@ -69,6 +69,34 @@ type SourceCoverage = {
   note: string;
 };
 
+type OpportunityMap = {
+  metric: {
+    businessMetric: string;
+    productOutcome: string;
+    journey: Array<{ code: string; journeyStep: string; productOutcome: string; leadingMetric: string }>;
+  };
+  coverage: { admittedEpisodes: number; mechanismCodedEpisodes: number; uncodedEpisodes: number; humanVerifiedEpisodes: number };
+  comparison: {
+    mostObservedMechanism: { code: string; episodes: number; sourceKinds: string[] } | null;
+    caveat: string;
+  };
+  areas: Array<{
+    code: string;
+    journeyStep: string;
+    userProblem: string;
+    productOutcome: string;
+    leadingMetric: string;
+    diagnosticMetrics: string[];
+    episodes: number;
+    sourceKinds: string[];
+    unresolvedEpisodes: number;
+    workaroundEpisodes: number;
+    humanVerifiedEpisodes: number;
+    evidenceStrength: "not_observed" | "early_directional" | "multi_source_directional";
+    examples: Array<{ id: string; source_text: string; canonical_url: string; source_kind: string; rationale: string }>;
+  }>;
+};
+
 type SystemState =
   | { kind: "loading" }
   | {
@@ -83,13 +111,14 @@ type SystemState =
       byFailureStage: Breakdown[];
       research: ResearchQuestions;
       sourceCoverage: SourceCoverage;
+      opportunity: OpportunityMap;
     }
   | { kind: "offline" };
 
 const stages = [
   { number: "01", title: "Collect evidence", description: "Bring public conversations into one traceable research corpus." },
   { number: "02", title: "Structure memory clues", description: "Separate what people remember, forget, try, and experience." },
-  { number: "03", title: "Compare breakdowns", description: "Find where expression, interpretation, evaluation, or recovery fails." },
+  { number: "03", title: "Compare breakdowns", description: "Find where expression, interpretation, evaluation, refinement, or library access fails." },
   { number: "04", title: "Prioritise an opportunity", description: "Connect evidence to a focused product outcome and validation plan." },
 ];
 
@@ -116,15 +145,16 @@ function App() {
 
     async function loadSystem() {
       try {
-        const [healthResponse, statsResponse, evidenceResponse, runsResponse, researchResponse, coverageResponse] = await Promise.all([
+        const [healthResponse, statsResponse, evidenceResponse, runsResponse, researchResponse, coverageResponse, opportunityResponse] = await Promise.all([
           fetch("/api/health", { signal: controller.signal }),
           fetch("/api/stats", { signal: controller.signal }),
           fetch("/api/evidence?limit=12", { signal: controller.signal }),
           fetch("/api/collection-runs", { signal: controller.signal }),
           fetch("/api/research-questions", { signal: controller.signal }),
           fetch("/api/source-coverage", { signal: controller.signal }),
+          fetch("/api/opportunity-map", { signal: controller.signal }),
         ]);
-        if (![healthResponse, statsResponse, evidenceResponse, runsResponse, researchResponse, coverageResponse].every((response) => response.ok)) {
+        if (![healthResponse, statsResponse, evidenceResponse, runsResponse, researchResponse, coverageResponse, opportunityResponse].every((response) => response.ok)) {
           throw new Error("System check failed");
         }
 
@@ -140,6 +170,7 @@ function App() {
         const runs = (await runsResponse.json()) as { data?: CollectionRun[] };
         const research = (await researchResponse.json()) as ResearchQuestions;
         const sourceCoverage = (await coverageResponse.json()) as SourceCoverage;
+        const opportunity = (await opportunityResponse.json()) as OpportunityMap;
         if (health.database !== "connected") throw new Error("Database unavailable");
 
         setSystem({
@@ -154,6 +185,7 @@ function App() {
           byFailureStage: stats.byFailureStage ?? [],
           research,
           sourceCoverage,
+          opportunity,
         });
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -200,6 +232,7 @@ function App() {
             </p>
             <div className="hero-actions">
               <a className="button button-primary" href="#research-questions">Explore the four research questions</a>
+              <a className="button button-secondary" href="#opportunity-map">Compare retrieval breakdowns</a>
               <span className="build-label">Live source collection and evidence coding</span>
             </div>
           </div>
@@ -247,6 +280,74 @@ function App() {
                   ) : <p className="question-unknown">{finding.id === "forgotten" ? "The current admitted posts do not explicitly state a memory gap. An unstated detail is not treated as forgotten." : "The current admitted posts do not establish a specific pattern for this question."}</p>}
                   {finding.id === "searches" && <p className="exact-query-note">Exact user-reported queries: {finding.reportedExactQueries?.length ? finding.reportedExactQueries.map((item) => `“${item.query}”`).join(", ") : "none in the current corpus"}.</p>}
                   <p className="question-caveat">{finding.caveat}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {system.kind === "online" && (
+          <section className="opportunity-section" id="opportunity-map">
+            <div className="section-heading">
+              <p className="eyebrow">Business metric → product outcomes</p>
+              <h2>Retrieval success is a chain; different breakdowns need different outcomes.</h2>
+              <p>{system.opportunity.metric.productOutcome}</p>
+            </div>
+            <div className="metric-chain" aria-label="Retrieval outcome chain">
+              {system.opportunity.metric.journey.map((step, index) => (
+                <div className="metric-chain-step" key={step.code}>
+                  <span>{String(index + 1).padStart(2, "0")}</span>
+                  <strong>{step.journeyStep}</strong>
+                  <p>{step.productOutcome}</p>
+                  <small>{step.leadingMetric}</small>
+                </div>
+              ))}
+            </div>
+
+            <div className="comparison-summary">
+              <div>
+                <span>Most observed in this selected corpus</span>
+                <strong>{system.opportunity.comparison.mostObservedMechanism ? friendlyLabel(system.opportunity.comparison.mostObservedMechanism.code) : "No mechanism observed"}</strong>
+              </div>
+              <div>
+                <span>Mechanism coding coverage</span>
+                <strong>{system.opportunity.coverage.mechanismCodedEpisodes} of {system.opportunity.coverage.admittedEpisodes} episodes</strong>
+              </div>
+              <p>{system.opportunity.comparison.caveat}</p>
+            </div>
+
+            <div className="opportunity-grid">
+              {system.opportunity.areas.map((area) => (
+                <article className={`opportunity-card ${area.episodes === 0 ? "opportunity-card-empty" : ""}`} key={area.code}>
+                  <div className="opportunity-topline">
+                    <span>{area.journeyStep}</span>
+                    <span>{area.evidenceStrength === "multi_source_directional" ? "Multi-source, directional" : area.evidenceStrength === "early_directional" ? "Early, directional" : "Not observed"}</span>
+                  </div>
+                  <h3>{friendlyLabel(area.code)}</h3>
+                  <p className="opportunity-problem">{area.userProblem}</p>
+                  <div className="opportunity-counts">
+                    <div><strong>{area.episodes}</strong><span>coded episodes</span></div>
+                    <div><strong>{area.sourceKinds.length}</strong><span>source types</span></div>
+                    <div><strong>{area.unresolvedEpisodes}</strong><span>unresolved</span></div>
+                  </div>
+                  <div className="outcome-box">
+                    <span>Product outcome</span>
+                    <strong>{area.productOutcome}</strong>
+                    <small>Leading metric · {area.leadingMetric}</small>
+                  </div>
+                  {area.examples.length > 0 && (
+                    <details className="mechanism-evidence">
+                      <summary>Inspect supporting evidence</summary>
+                      {area.examples.map((example) => (
+                        <div key={example.id}>
+                          <p>“{example.source_text}”</p>
+                          <small>{example.rationale}</small>
+                          <a href={example.canonical_url} target="_blank" rel="noreferrer">Source ↗</a>
+                        </div>
+                      ))}
+                    </details>
+                  )}
+                  <p className="diagnostic-note">Diagnostics · {area.diagnosticMetrics.join(" · ")}</p>
                 </article>
               ))}
             </div>
@@ -375,8 +476,8 @@ function App() {
         </section>
 
         <section className="next-step">
-          <div><p className="eyebrow">Next implementation gate</p><h2>Broaden evidence before defining the opportunity.</h2></div>
-          <p>Expand beyond the first support-community sample, then human-audit evidence across sources before comparing failure stages.</p>
+          <div><p className="eyebrow">Next research gate</p><h2>Validate the observed interpretation breakdown before choosing a solution.</h2></div>
+          <p>The corpus now supports mechanism comparison, but not market sizing. Add targeted evidence and real retrieval tasks before treating the most observed mechanism as the final product opportunity.</p>
         </section>
       </main>
 

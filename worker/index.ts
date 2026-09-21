@@ -1,4 +1,5 @@
 import { collectYouTubeEvidence, ingestAppStoreEvidence, ingestCuratedPublicEvidence, ingestGoogleSupportEvidence, timingSafeSecretMatch } from "./collection";
+import { buildOpportunityMap, type OpportunityRow } from "./opportunity";
 import { buildResearchQuestions, type ResearchRow } from "./research";
 
 type EvidenceFilters = {
@@ -201,6 +202,31 @@ async function getResearchQuestions(db: D1Database): Promise<Response> {
   return jsonResponse(buildResearchQuestions(evidenceResult.results as ResearchRow[], total));
 }
 
+async function getOpportunityMap(db: D1Database): Promise<Response> {
+  const [countResult, opportunityResult] = await db.batch([
+    db.prepare(`
+      SELECT COUNT(*) AS total FROM evidence_units e
+      JOIN raw_documents d ON d.id = e.document_id
+      JOIN sources s ON s.id = d.source_id
+      WHERE s.include_in_findings = 1 AND s.is_simulated = 0
+    `),
+    db.prepare(`
+      SELECT e.id, o.problem_mechanism, o.rationale, e.retrieval_outcome,
+        e.workaround, e.is_human_verified, s.source_kind, d.body AS source_text,
+        s.canonical_url
+      FROM opportunity_codings o
+      JOIN evidence_units e ON e.id = o.evidence_id
+      JOIN raw_documents d ON d.id = e.document_id
+      JOIN sources s ON s.id = d.source_id
+      WHERE s.include_in_findings = 1 AND s.is_simulated = 0
+      ORDER BY o.coded_at DESC, e.id ASC
+      LIMIT 1000
+    `),
+  ]);
+  const total = (countResult.results[0] as { total?: number } | undefined)?.total ?? 0;
+  return jsonResponse(buildOpportunityMap(opportunityResult.results as OpportunityRow[], total));
+}
+
 async function getSourceCoverage(db: D1Database): Promise<Response> {
   const [runs, admitted, candidates] = await db.batch([
     db.prepare(`
@@ -265,7 +291,7 @@ export default {
         return jsonResponse({
           status: "ok",
           service: "photo-recall-discovery-engine",
-          stage: "multi-source-ingestion",
+          stage: "opportunity-comparison",
           database: databaseCheck?.connected === 1 ? "connected" : "unavailable",
           checkedAt: new Date().toISOString(),
         });
@@ -277,6 +303,10 @@ export default {
 
       if (request.method === "GET" && url.pathname === "/api/research-questions") {
         return await getResearchQuestions(env.DB);
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/opportunity-map") {
+        return await getOpportunityMap(env.DB);
       }
 
       if (request.method === "GET" && url.pathname === "/api/source-coverage") {

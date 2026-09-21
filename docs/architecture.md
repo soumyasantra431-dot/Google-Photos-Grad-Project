@@ -59,6 +59,9 @@ Public API, feed, page, and verified-excerpt imports
 - **Groq** classifies and synthesizes; it does not invent or calculate dashboard totals.
 - **Worker API** validates requests and queries bound Cloudflare services.
 - **React interface** presents evidence, coverage, uncertainty, and opportunity comparisons.
+- **Opportunity coding** is a separate human-reviewed table. It does not overwrite the raw source
+  or Groq extraction, and it keeps uncoded episodes visible rather than assigning a mechanism by
+  inference.
 
 ## Research integrity rules
 
@@ -98,6 +101,10 @@ Public API, feed, page, and verified-excerpt imports
 - Four deterministic question views separate photo target types, remembered clue types, explicitly
   forgotten context, and attempted or requested search methods. Unstated details are not coded as
   forgotten; exact typed queries are reported only when the user's words are available.
+- The product-outcome view compares five mechanisms: clue expression, clue interpretation, result
+  evaluation, search refinement, and library access. Counts, source diversity, unresolved outcomes,
+  workarounds, and human-review coverage are shown independently. “Most observed” is explicitly a
+  selected-corpus signal, not a RICE score, prevalence estimate, or final opportunity decision.
 
 ## Deferred
 

@@ -45,6 +45,10 @@ Wrangler configuration so both the API and static interface are published togeth
 - `GET /api/evidence?includeSimulated=true` is an explicit test-only view.
 - `GET /api/research-questions` answers the four required questions with coded episode counts,
   source links, exact-query availability, and explicit unknowns.
+- `GET /api/opportunity-map` decomposes retrieval into clue expression, clue interpretation,
+  result evaluation, search refinement, and library access. It compares evidence strength and
+  connects each mechanism to a product outcome, leading metric, and diagnostics without inventing
+  a market-size or prioritization score.
 - `GET /api/source-coverage` distinguishes source families attempted from evidence admitted.
 
 Optional filters are `failureStage`, `sourceKind`, and `limit` (1-50).
