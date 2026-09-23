@@ -14,6 +14,10 @@ IDs, and link back to the public source. Rejected or simulated material is exclu
 The admitted corpus is a small, purposively sampled qualitative set, not a population-prevalence
 estimate or proof of current product behavior for every user.
 
+The separate [Photo Recall Lab MVP](research/mvp/recall-lab-implementation.md) runs at `/recall-lab`.
+It tests guided recovery from a broad photo search in a 27-image **synthetic** library; it is not
+connected to a user's Google Photos account and has not yet been tested by three outside users.
+
 ## Local setup
 
 ```powershell
@@ -93,9 +97,10 @@ Optional filters are `failureStage`, `sourceKind`, and `limit` (1-50).
 Google Play and social collection are not yet connected. Forum coverage is a small, researcher-curated
 set of Google-Photos-specific public discussions, not a general forum firehose. Public App Store review
 volume should not be mistaken for relevant retrieval episodes. Public complaints are self-selected
-and cannot establish how common a failure is. More target-specific source discovery and 5–6 real
-interviews are still needed before choosing and validating a product opportunity; simulated
-interviews must never be presented as primary research.
+and cannot establish how common a failure is. The [rapid survey-and-public-evidence synthesis](research/primary-research/2026-09-23-alternative-research-synthesis.md)
+supports a provisional problem choice, but it does not replace the 5–6 real interviews or three
+return-user MVP tests required by the graduation brief. Simulated walkthroughs may test assumptions,
+but must be labeled as simulations rather than attributed to real participants.
 
 ## Primary research
 
@@ -105,6 +110,10 @@ anonymized structured coding is stored in `research/primary-research/`; names, e
 timestamps, response tokens, and raw free-text answers are not published. Survey counts are never
 merged into the public-evidence corpus or its percentages, and incomplete or inconsistent responses
 remain visibly flagged.
+
+The [rapid PM synthesis](research/primary-research/2026-09-23-alternative-research-synthesis.md)
+provisionally selects a clue-to-results failure; the [MVP task and test plan](research/primary-research/2026-09-23-mvp-task-and-test-plan.md)
+defines three evidence-seeded tasks, a controlled baseline, and success/diagnostic measures.
 
 ## Secrets
 

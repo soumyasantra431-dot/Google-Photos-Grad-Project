@@ -4,6 +4,7 @@ import { buildProblemDefinition } from "./problem";
 import { buildResearchQuestions, type ResearchRow } from "./research";
 import { ANALYSIS_TEMPLATES, getGroundedAnalysis, type AnalysisTemplateId } from "./analysis";
 import { buildPrimaryResearchSummary } from "./primaryResearch";
+import { evaluateLabChoice, guidedRank, keywordRank, labPhotos, labTasks, publicLabCatalog } from "./recallLab";
 
 type EvidenceFilters = {
   limit: number;
@@ -389,6 +390,54 @@ export default {
 
       if (request.method === "GET" && url.pathname === "/api/primary-research") {
         return jsonResponse(buildPrimaryResearchSummary());
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/recall-lab/catalog") {
+        return jsonResponse(publicLabCatalog());
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/recall-lab/search") {
+        const contentLength = Number(request.headers.get("Content-Length") ?? "0");
+        if (!Number.isFinite(contentLength) || contentLength < 2 || contentLength > 2_000) return badRequest("Search request is too large or missing");
+        const input = await request.json() as { taskId?: unknown; query?: unknown; mode?: unknown };
+        if (typeof input.taskId !== "string" || !labTasks.some((task) => task.id === input.taskId)) return badRequest("Choose a valid test task");
+        if (typeof input.query !== "string" || input.query.trim().length < 2 || input.query.length > 160) return badRequest("Enter a clue between 2 and 160 characters");
+        if (input.mode !== "baseline" && input.mode !== "guided") return badRequest("Choose baseline or guided mode");
+        const limited = await env.RECALL_RATE.limit({ key: "recall-lab-search" });
+        if (!limited.success) return jsonResponse({ error: "rate_limited", message: "The demo is busy. Try again in a minute." }, 429);
+        const query = input.query.trim();
+        const ranked = input.mode === "guided" ? await guidedRank(env.GROQ_API_KEY, query) : { ids: keywordRank(query), mode: "keyword" as const };
+        const task = labTasks.find((item) => item.id === input.taskId)!;
+        return jsonResponse({ ids: ranked.ids, mode: ranked.mode, followUp: input.mode === "guided" ? task.followUp : null });
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/recall-lab/evaluate") {
+        const contentLength = Number(request.headers.get("Content-Length") ?? "0");
+        if (!Number.isFinite(contentLength) || contentLength < 2 || contentLength > 2_000) return badRequest("Evaluation request is too large or missing");
+        const input = await request.json() as Record<string, unknown>;
+        const photoId = input.selectedPhotoId === null ? null : input.selectedPhotoId;
+        if (typeof input.taskId !== "string" || (photoId !== null && (typeof photoId !== "string" || !labPhotos.some((photo) => photo.id === photoId)))) return badRequest("Task or photo is invalid");
+        const evaluation = evaluateLabChoice(input.taskId, photoId as string | null);
+        if (!evaluation) return badRequest("Task is invalid");
+        if (input.record === true) {
+          const limited = await env.RECALL_RATE.limit({ key: "recall-lab-record" });
+          if (!limited.success) return jsonResponse({ error: "rate_limited", message: "The demo is busy. Try again in a minute." }, 429);
+          const validSession = typeof input.sessionId === "string" && /^[0-9a-f-]{36}$/i.test(input.sessionId);
+          const validMode = input.mode === "baseline" || input.mode === "guided";
+          const validAttempts = Number.isInteger(input.attempts) && Number(input.attempts) >= 1 && Number(input.attempts) <= 10;
+          const validTime = Number.isInteger(input.elapsedMs) && Number(input.elapsedMs) >= 0 && Number(input.elapsedMs) <= 3_600_000;
+          const validTopFive = Array.isArray(input.topFiveIds) && input.topFiveIds.length <= 5 && input.topFiveIds.every((id) => typeof id === "string" && labPhotos.some((photo) => photo.id === id));
+          const validAiMode = input.aiMode === "groq" || input.aiMode === "keyword_fallback" || input.aiMode === "keyword";
+          if (!validSession || !validMode || !validAttempts || !validTime || !validTopFive || !validAiMode) return badRequest("Anonymous test result is incomplete");
+          const targetInTopFive = (input.topFiveIds as string[]).includes(evaluation.targetId) ? 1 : 0;
+          await env.DB.prepare(`INSERT OR IGNORE INTO recall_lab_runs
+            (session_id, task_id, mode, attempts, elapsed_ms, selected_photo_id, correct, target_in_last_top_five, ai_mode)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+            input.sessionId, input.taskId, input.mode, input.attempts, input.elapsedMs,
+            photoId, evaluation.correct ? 1 : 0, targetInTopFive, input.aiMode,
+          ).run();
+        }
+        return jsonResponse(evaluation);
       }
 
       if (request.method === "GET" && url.pathname === "/api/source-coverage") {
