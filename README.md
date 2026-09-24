@@ -17,6 +17,9 @@ estimate or proof of current product behavior for every user.
 The separate [Photo Recall Lab MVP](research/mvp/recall-lab-implementation.md) runs at `/recall-lab`.
 It tests guided recovery from a broad photo search in a 27-image **synthetic** library; it is not
 connected to a user's Google Photos account and has not yet been tested by three outside users.
+The [segment and opportunity validation memo](research/primary-research/2026-09-24-segmentation-opportunity-validation.md)
+audits proposed user groups against the public corpus and anonymous survey, then makes a
+provisional segment/problem choice with explicit rival explanations and test criteria.
 
 ## Local setup
 

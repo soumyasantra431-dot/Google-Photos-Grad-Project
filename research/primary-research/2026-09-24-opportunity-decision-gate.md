@@ -2,6 +2,8 @@
 
 24 September 2026 · Decision status: **provisional focus for validation**, not a final problem/solution choice.
 
+**Updated segmentation:** The later [framework audit and four task-pathway comparison](2026-09-24-segmentation-opportunity-validation.md) separates browse-first behavior from clue-first search. Use that memo as the current segmentation decision; the three candidate situations below record the earlier decision gate.
+
 ## Decision to make
 
 The business outcome is the share of eligible attempts in which a person **opens and confirms the specific photo they had in mind**, having started without a reliable date, album, or exact searchable words. The discovery engine identifies possible breakdowns. The PM decision is which *user situation and failure mechanism* to solve first; the existing Recall Lab is a test instrument, not the answer to that decision.
