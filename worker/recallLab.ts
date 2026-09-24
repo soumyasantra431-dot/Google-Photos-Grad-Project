@@ -8,13 +8,14 @@ export type LabPhoto = {
 };
 
 export type LabTask = {
-  id: "pet" | "trip" | "event";
+  id: "pet" | "trip" | "event" | "cafe";
   title: string;
   scenario: string;
   seedQuery: string;
   followUp: string;
   evidenceSeed: string;
   targetId: string;
+  fixedFirstQuery?: boolean;
 };
 
 export const labPhotos: LabPhoto[] = [
@@ -51,6 +52,7 @@ export const labTasks: LabTask[] = [
   { id: "pet", title: "Find the pet photo", scenario: "A brown dog at the water's edge, wearing a bright collar. You don't know the date or album.", seedQuery: "dog", followUp: "What else do you remember about the animal or where it was?", evidenceSeed: "R01: pet photo; remembered appearance/place; first results unrelated", targetId: "P07" },
   { id: "trip", title: "Find the trip photo", scenario: "A man in a yellow shirt beside a blue wooden boat on a beach. You don't know the date or album.", seedQuery: "man", followUp: "Do you remember something near the person, or a detail of the setting?", evidenceSeed: "R08: trip/person photo; first query 'Man'; first results unrelated", targetId: "T04" },
   { id: "event", title: "Find the event photo", scenario: "A family group behind a small blue cake, with silver balloons in the background. You don't know the date or album.", seedQuery: "birthday", followUp: "What detail would separate the right event photo from similar ones?", evidenceSeed: "R07: event photo; plausible matches hard to identify", targetId: "E08" },
+  { id: "cafe", title: "Find a café photo from a trip", scenario: "Friends at an outdoor café by the sea during a trip. You don't know the date or album. This controlled task starts with only the broad clue ‘trip’; after that, use the scene details you remember.", seedQuery: "trip", followUp: "What do you remember seeing in the photo, or who was there?", evidenceSeed: "Simulated café benchmark SIM-P01; test-only, not a research respondent", targetId: "T05", fixedFirstQuery: true },
 ];
 
 const synonyms: Record<string, string[]> = {
@@ -91,7 +93,30 @@ export function publicLabCatalog() {
   return {
     note: "All images and target details are AI-generated synthetic test material. Survey IDs identify the reported failure pattern only; these are not respondent photos or quotations.",
     photos: labPhotos.map(({ id, sheet, cell, caption, tags }) => ({ id, sheet, cell, alt: caption, tags })),
-    tasks: labTasks.map(({ id, title, scenario, seedQuery, evidenceSeed }) => ({ id, title, scenario, seedQuery, evidenceSeed })),
+    tasks: labTasks.map(({ id, title, scenario, seedQuery, evidenceSeed, fixedFirstQuery }) => ({ id, title, scenario, seedQuery, evidenceSeed, fixedFirstQuery: Boolean(fixedFirstQuery) })),
+  };
+}
+
+export type LabRankMode = "groq" | "keyword_fallback" | "keyword";
+
+/** Accept only complete rankings of the synthetic catalog; never store search text. */
+export function validatedRankHistory(
+  rankings: unknown,
+  modes: unknown,
+  expectedAttempts: number,
+  lastTopFive: unknown,
+  lastMode: unknown,
+  targetId: string,
+): { targetRanks: number[]; attemptModes: LabRankMode[] } | null {
+  if (!Array.isArray(rankings) || !Array.isArray(modes) || rankings.length !== expectedAttempts || modes.length !== expectedAttempts || expectedAttempts < 1 || expectedAttempts > 10) return null;
+  const allowed = new Set(labPhotos.map((photo) => photo.id));
+  if (!rankings.every((ids) => Array.isArray(ids) && ids.length === labPhotos.length && new Set(ids).size === labPhotos.length && ids.every((id) => typeof id === "string" && allowed.has(id)))) return null;
+  if (!modes.every((mode) => mode === "groq" || mode === "keyword_fallback" || mode === "keyword")) return null;
+  if (!Array.isArray(lastTopFive) || lastTopFive.length !== 5 || rankings.at(-1).slice(0, 5).some((id: string, index: number) => id !== lastTopFive[index])) return null;
+  if (modes.at(-1) !== lastMode) return null;
+  return {
+    targetRanks: rankings.map((ids: string[]) => ids.indexOf(targetId) + 1),
+    attemptModes: modes as LabRankMode[],
   };
 }
 

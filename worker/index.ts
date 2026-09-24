@@ -4,7 +4,7 @@ import { buildProblemDefinition } from "./problem";
 import { buildResearchQuestions, type ResearchRow } from "./research";
 import { ANALYSIS_TEMPLATES, getGroundedAnalysis, type AnalysisTemplateId } from "./analysis";
 import { buildPrimaryResearchSummary } from "./primaryResearch";
-import { evaluateLabChoice, guidedRank, keywordRank, labPhotos, labTasks, publicLabCatalog } from "./recallLab";
+import { evaluateLabChoice, guidedRank, keywordRank, labPhotos, labTasks, publicLabCatalog, validatedRankHistory } from "./recallLab";
 
 type EvidenceFilters = {
   limit: number;
@@ -413,7 +413,7 @@ export default {
 
       if (request.method === "POST" && url.pathname === "/api/recall-lab/evaluate") {
         const contentLength = Number(request.headers.get("Content-Length") ?? "0");
-        if (!Number.isFinite(contentLength) || contentLength < 2 || contentLength > 2_000) return badRequest("Evaluation request is too large or missing");
+        if (!Number.isFinite(contentLength) || contentLength < 2 || contentLength > 4_000) return badRequest("Evaluation request is too large or missing");
         const input = await request.json() as Record<string, unknown>;
         const photoId = input.selectedPhotoId === null ? null : input.selectedPhotoId;
         if (typeof input.taskId !== "string" || (photoId !== null && (typeof photoId !== "string" || !labPhotos.some((photo) => photo.id === photoId)))) return badRequest("Task or photo is invalid");
@@ -429,12 +429,19 @@ export default {
           const validTopFive = Array.isArray(input.topFiveIds) && input.topFiveIds.length <= 5 && input.topFiveIds.every((id) => typeof id === "string" && labPhotos.some((photo) => photo.id === id));
           const validAiMode = input.aiMode === "groq" || input.aiMode === "keyword_fallback" || input.aiMode === "keyword";
           if (!validSession || !validMode || !validAttempts || !validTime || !validTopFive || !validAiMode) return badRequest("Anonymous test result is incomplete");
+          const hasRankHistory = input.rankedIdsByAttempt !== undefined || input.attemptModes !== undefined;
+          const rankHistory = hasRankHistory ? validatedRankHistory(
+            input.rankedIdsByAttempt, input.attemptModes, Number(input.attempts), input.topFiveIds, input.aiMode, evaluation.targetId,
+          ) : null;
+          if (hasRankHistory && !rankHistory) return badRequest("Rank history is incomplete or inconsistent");
           const targetInTopFive = (input.topFiveIds as string[]).includes(evaluation.targetId) ? 1 : 0;
           await env.DB.prepare(`INSERT OR IGNORE INTO recall_lab_runs
-            (session_id, task_id, mode, attempts, elapsed_ms, selected_photo_id, correct, target_in_last_top_five, ai_mode)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+            (session_id, task_id, mode, attempts, elapsed_ms, selected_photo_id, correct, target_in_last_top_five, ai_mode, target_ranks_json, attempt_modes_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
             input.sessionId, input.taskId, input.mode, input.attempts, input.elapsedMs,
             photoId, evaluation.correct ? 1 : 0, targetInTopFive, input.aiMode,
+            rankHistory ? JSON.stringify(rankHistory.targetRanks) : null,
+            rankHistory ? JSON.stringify(rankHistory.attemptModes) : null,
           ).run();
         }
         return jsonResponse(evaluation);
